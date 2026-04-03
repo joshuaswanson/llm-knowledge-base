@@ -76,6 +76,16 @@ uv run kb ingest path/to/paper.md
 # Batch ingest multiple sources at once
 uv run kb ingest url1 url2 file1.md
 
+# Ingest a podcast RSS feed (grabs transcripts when available)
+uv run kb ingest-podcast "https://feeds.example.com/podcast.xml"
+uv run kb ingest-podcast "https://feeds.example.com/podcast.xml" --max-episodes 10
+
+# Import browser bookmarks (Chrome/Firefox/Safari HTML export)
+uv run kb import-bookmarks ~/Downloads/bookmarks.html
+
+# Import Twitter/X bookmarks (JSON data export)
+uv run kb import-bookmarks ~/Downloads/twitter-bookmarks.json
+
 # Compile raw sources into wiki articles
 uv run kb compile
 uv run kb compile --force    # recompile everything
@@ -99,8 +109,16 @@ uv run kb lint --no-llm    # structural checks only, no API calls
 # Show stats
 uv run kb status
 
+# Generate a matplotlib chart from wiki data
+uv run kb chart "tag distribution"
+uv run kb chart "word counts by source" -o wiki/charts/words.png
+
 # Watch a directory for new files and auto-ingest
 uv run kb watch ~/Downloads/research --compile-after
+
+# Get a browser bookmarklet for one-click saving
+uv run kb bookmarklet
+# Or visit http://localhost:3000/api/bookmarklet to drag it to your bookmarks bar
 ```
 
 ### Web UI
