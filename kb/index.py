@@ -4,12 +4,14 @@ from kb.config import CONCEPTS_DIR, INDEX_PATH, SOURCES_DIR, WIKI_DIR
 
 
 def _read_frontmatter(path) -> dict:
+    import re
     text = path.read_text()
     if text.startswith("---"):
         parts = text.split("---", 2)
         if len(parts) >= 3:
+            fm = re.sub(r"\[\[([^\]]+)\]\]", r"\1", parts[1])
             try:
-                return yaml.safe_load(parts[1]) or {}
+                return yaml.safe_load(fm) or {}
             except yaml.YAMLError:
                 return {}
     return {}

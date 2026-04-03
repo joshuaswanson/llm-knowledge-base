@@ -45,8 +45,10 @@ def _read_frontmatter(path: Path) -> dict:
     if text.startswith("---"):
         parts = text.split("---", 2)
         if len(parts) >= 3:
+            # Strip [[wikilinks]] from frontmatter before parsing
+            fm = re.sub(r"\[\[([^\]]+)\]\]", r"\1", parts[1])
             try:
-                return yaml.safe_load(parts[1]) or {}
+                return yaml.safe_load(fm) or {}
             except yaml.YAMLError:
                 return {}
     return {}
