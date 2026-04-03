@@ -1074,7 +1074,7 @@ body {
 
 /* ===== Responsive ===== */
 
-@media (max-width: 900px) {
+@media (max-width: 480px) {
   :root {
     --sidebar-w: 56px;
   }
