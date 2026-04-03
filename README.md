@@ -68,13 +68,17 @@ export ANTHROPIC_API_KEY=your-key
 ### CLI
 
 ```bash
-# Ingest sources (URLs, YouTube videos, local files)
+# Ingest sources (URLs, YouTube videos, local files, images)
 uv run kb ingest "https://example.com/article"
 uv run kb ingest "https://youtube.com/watch?v=..."
 uv run kb ingest path/to/paper.md
+uv run kb ingest photo.png data.csv dataset.json
 
-# Batch ingest multiple sources at once
-uv run kb ingest url1 url2 file1.md
+# Batch ingest multiple sources at once (auto-compile after)
+uv run kb ingest url1 url2 file1.md --compile
+
+# Ingest a GitHub/GitLab repo (clones, reads README + structure)
+uv run kb ingest-repo "https://github.com/user/repo"
 
 # Ingest a podcast RSS feed (grabs transcripts when available)
 uv run kb ingest-podcast "https://feeds.example.com/podcast.xml"
@@ -135,7 +139,7 @@ Opens a web dashboard at `http://localhost:3000` with:
 - **Chat**: Conversational Q&A against your knowledge base
 - **Graph**: Interactive D3 force-directed graph of concept connections
 
-Keyboard shortcuts: press 1-5 to switch between views.
+Light/dark mode toggle in the sidebar. Keyboard shortcuts: press 1-5 to switch between views.
 
 ### Obsidian
 
@@ -157,7 +161,7 @@ kb/               Python package
   compile.py      Wiki compilation
   query.py        Q&A engine
   search.py       TF-IDF search
-  ingest.py       Source ingestion (URLs, YouTube, files)
+  ingest.py       Source ingestion (URLs, YouTube, repos, podcasts, images, datasets)
   slides.py       Marp slide generation
   lint.py         Health checks
   llm.py          LLM provider abstraction
@@ -172,7 +176,9 @@ When you run `kb compile`:
 2. Each source is summarized into a wiki article in `wiki/sources/`
 3. The LLM extracts key concepts and creates `[[wikilinks]]` between articles
 4. New concept articles are generated in `wiki/concepts/` for linked concepts
-5. `INDEX.md` is rebuilt with categorized links and word counts
+5. Backlinks are generated (each article lists what links to it)
+6. `INDEX.md` is rebuilt with brief summaries and word counts
+7. Images referenced in sources are downloaded locally to `raw/images/`
 
 Every compile run is incremental. Use `--force` to reprocess everything.
 
