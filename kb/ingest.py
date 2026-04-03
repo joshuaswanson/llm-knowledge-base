@@ -1,12 +1,16 @@
+from __future__ import annotations
+
 import hashlib
 import json
 import re
 import shutil
 import tempfile
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
+import httpx
 import trafilatura
 import yaml
 import yt_dlp
@@ -156,9 +160,225 @@ def ingest_youtube(url: str) -> Path:
     return dest
 
 
-def ingest_url(url: str) -> Path:
+def _is_rss_feed(content: str) -> bool:
+    """Check whether raw text looks like an RSS or Atom feed."""
+    # Only inspect the first 1000 chars to keep the check fast.
+    head = content[:1000]
+    return any(indicator in head for indicator in ("<rss", "<feed", "application/rss+xml", "<channel>"))
+
+
+def _parse_rss_episodes(xml_text: str, max_episodes: int) -> tuple[str, list[dict]]:
+    """Return (podcast_name, [episode_dicts]) from RSS XML.
+
+    Each episode dict has keys: title, description, link, audio_url,
+    pub_date, transcript_url.
+    """
+    root = ET.fromstring(xml_text)
+
+    # Namespace map for common podcast extensions
+    ns = {
+        "itunes": "http://www.itunes.com/dtds/podcast-1.0.dtd",
+        "podcast": "https://podcastindex.org/namespace/1.0",
+        "atom": "http://www.w3.org/2005/Atom",
+        "content": "http://purl.org/rss/1.0/modules/content/",
+    }
+
+    channel = root.find("channel")
+    if channel is None:
+        # Atom feeds use <feed> directly
+        channel = root
+
+    podcast_name = ""
+    title_el = channel.find("title")
+    if title_el is not None and title_el.text:
+        podcast_name = title_el.text.strip()
+
+    items = channel.findall("item")
+    if not items:
+        # Atom feeds use <entry> instead of <item>
+        items = channel.findall("{http://www.w3.org/2005/Atom}entry")
+
+    episodes: list[dict] = []
+    for item in items[:max_episodes]:
+        ep: dict = {
+            "title": "",
+            "description": "",
+            "link": "",
+            "audio_url": "",
+            "pub_date": "",
+            "transcript_url": "",
+        }
+
+        # Title
+        t = item.find("title")
+        if t is not None and t.text:
+            ep["title"] = t.text.strip()
+
+        # Link
+        link_el = item.find("link")
+        if link_el is not None:
+            ep["link"] = (link_el.text or link_el.get("href", "")).strip()
+
+        # Publication date
+        pub = item.find("pubDate")
+        if pub is not None and pub.text:
+            ep["pub_date"] = pub.text.strip()
+
+        # Description: prefer content:encoded, fall back to description
+        content_encoded = item.find("content:encoded", ns)
+        desc_el = item.find("description")
+        if content_encoded is not None and content_encoded.text:
+            ep["description"] = content_encoded.text.strip()
+        elif desc_el is not None and desc_el.text:
+            ep["description"] = desc_el.text.strip()
+
+        # Audio URL from <enclosure>
+        enclosure = item.find("enclosure")
+        if enclosure is not None:
+            enc_type = enclosure.get("type", "")
+            if "audio" in enc_type or enclosure.get("url", "").split("?")[0].endswith(
+                (".mp3", ".m4a", ".ogg", ".wav", ".opus")
+            ):
+                ep["audio_url"] = enclosure.get("url", "")
+
+        # Transcript URL from <podcast:transcript>
+        for transcript_el in item.findall("podcast:transcript", ns):
+            url = transcript_el.get("url", "")
+            if url:
+                ep["transcript_url"] = url
+                break
+
+        episodes.append(ep)
+
+    return podcast_name, episodes
+
+
+def _fetch_transcript(transcript_url: str) -> str:
+    """Download and clean a podcast transcript from a URL."""
+    try:
+        resp = httpx.get(transcript_url, follow_redirects=True, timeout=30)
+        resp.raise_for_status()
+    except httpx.HTTPError:
+        return ""
+
+    text = resp.text
+    content_type = resp.headers.get("content-type", "")
+
+    # If it looks like VTT/SRT, strip timing cues
+    if "vtt" in content_type or text.lstrip().startswith("WEBVTT") or transcript_url.endswith(".vtt"):
+        return _strip_subtitle_timing(text)
+    if "srt" in content_type or transcript_url.endswith(".srt"):
+        return _strip_subtitle_timing(text)
+
+    # JSON transcript (Podcasting 2.0 format)
+    if "json" in content_type or transcript_url.endswith(".json"):
+        try:
+            data = json.loads(text)
+            segments = data if isinstance(data, list) else data.get("segments", [])
+            return "\n".join(s.get("body", s.get("text", "")) for s in segments if isinstance(s, dict))
+        except (json.JSONDecodeError, TypeError):
+            return text
+
+    # Plain text or HTML: return as-is (HTML tags will be in show notes anyway)
+    return text.strip()
+
+
+def _strip_html_tags(text: str) -> str:
+    """Remove HTML tags from text, keeping the inner content."""
+    return re.sub(r"<[^>]+>", "", text)
+
+
+def _parse_pub_date(date_str: str) -> str:
+    """Try to parse an RSS pubDate into YYYY-MM-DD, or return the original."""
+    # RSS dates are typically RFC 2822: "Mon, 01 Jan 2024 00:00:00 +0000"
+    for fmt in ("%a, %d %b %Y %H:%M:%S %z", "%a, %d %b %Y %H:%M:%S %Z", "%Y-%m-%dT%H:%M:%S%z"):
+        try:
+            dt = datetime.strptime(date_str.strip(), fmt)
+            return dt.strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    return date_str.strip()
+
+
+def ingest_podcast(rss_url: str, max_episodes: int = 5) -> list[Path]:
+    """Ingest episodes from a podcast RSS feed into the knowledge base."""
+    resp = httpx.get(rss_url, follow_redirects=True, timeout=30)
+    resp.raise_for_status()
+    xml_text = resp.text
+
+    podcast_name, episodes = _parse_rss_episodes(xml_text, max_episodes)
+
+    if not episodes:
+        raise ValueError(f"No episodes found in RSS feed: {rss_url}")
+
+    state = _load_state()
+    paths: list[Path] = []
+
+    for ep in episodes:
+        title = ep["title"] or "Untitled Episode"
+
+        # Build body
+        body_parts: list[str] = []
+
+        if ep["description"]:
+            cleaned = _strip_html_tags(ep["description"])
+            body_parts.append(f"## Show Notes\n\n{cleaned.strip()}")
+
+        # Try to fetch transcript
+        if ep["transcript_url"]:
+            transcript = _fetch_transcript(ep["transcript_url"])
+            if transcript:
+                body_parts.append(f"## Transcript\n\n{transcript.strip()}")
+
+        if not body_parts:
+            body_parts.append("*No show notes or transcript available.*")
+
+        body = "\n\n".join(body_parts)
+
+        episode_date = _parse_pub_date(ep["pub_date"]) if ep["pub_date"] else ""
+
+        slug = _slugify(title)
+        filename = f"{slug}.md"
+
+        metadata: dict = {
+            "title": title,
+            "source_url": ep["link"] or rss_url,
+            "source_type": "podcast",
+            "podcast_name": podcast_name,
+            "episode_date": episode_date,
+            "ingested_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        dest = _write_raw_md(filename, body, metadata)
+        paths.append(dest)
+
+        state["sources"][filename] = {
+            "type": "podcast",
+            "url": ep["link"] or rss_url,
+            "title": title,
+            "podcast_name": podcast_name,
+            "hash": _file_hash(dest),
+            "ingested_at": metadata["ingested_at"],
+            "compiled": False,
+        }
+
+    _save_state(state)
+    return paths
+
+
+def ingest_url(url: str) -> Path | list[Path]:
     if _is_youtube_url(url):
         return ingest_youtube(url)
+
+    # Check if the URL points to an RSS/Atom feed
+    try:
+        resp = httpx.get(url, follow_redirects=True, timeout=30)
+        resp.raise_for_status()
+        content_type = resp.headers.get("content-type", "")
+        if "xml" in content_type or "rss" in content_type or "atom" in content_type or _is_rss_feed(resp.text):
+            return ingest_podcast(url)
+    except httpx.HTTPError:
+        pass  # Fall through to trafilatura
 
     downloaded = trafilatura.fetch_url(url)
     if not downloaded:

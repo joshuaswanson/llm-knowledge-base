@@ -200,6 +200,122 @@ async def ingest_endpoint(
     raise HTTPException(status_code=400, detail="Provide a URL or upload a file")
 
 
+@app.get("/api/bookmarklet", response_class=HTMLResponse)
+async def bookmarklet_endpoint(server: str = "http://localhost:3000"):
+    bookmarklet_js = _bookmarklet_js(server)
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Knowledge Base Bookmarklet</title>
+<style>
+  body {{
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                 Helvetica, Arial, sans-serif;
+    max-width: 640px;
+    margin: 3rem auto;
+    padding: 0 1rem;
+    line-height: 1.6;
+    color: #1a1a1a;
+    background: #fafafa;
+  }}
+  h1 {{ font-size: 1.4rem; }}
+  .bookmarklet-link {{
+    display: inline-block;
+    padding: 0.5rem 1.2rem;
+    background: #2563eb;
+    color: #fff;
+    border-radius: 6px;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.95rem;
+    cursor: grab;
+    user-select: none;
+  }}
+  .bookmarklet-link:hover {{ background: #1d4ed8; }}
+  code {{
+    background: #e5e7eb;
+    padding: 0.15rem 0.35rem;
+    border-radius: 3px;
+    font-size: 0.85rem;
+  }}
+  pre {{
+    background: #1e293b;
+    color: #e2e8f0;
+    padding: 1rem;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 0.82rem;
+    line-height: 1.5;
+  }}
+  ol li {{ margin-bottom: 0.5rem; }}
+  .config-note {{
+    margin-top: 2rem;
+    padding: 0.75rem 1rem;
+    background: #fef3c7;
+    border-left: 3px solid #f59e0b;
+    border-radius: 4px;
+    font-size: 0.9rem;
+  }}
+</style>
+</head>
+<body>
+<h1>Ingest to Knowledge Base</h1>
+
+<p>Drag this button to your bookmarks bar:</p>
+
+<p><a class="bookmarklet-link" href="{bookmarklet_js}">Save to KB</a></p>
+
+<h2>How to use</h2>
+<ol>
+  <li>Drag the <strong>Save to KB</strong> button above into your browser's bookmarks bar.</li>
+  <li>Navigate to any page you want to save.</li>
+  <li>Click the bookmarklet. A small notification will confirm success or failure.</li>
+</ol>
+
+<h2>Raw JavaScript</h2>
+<pre>{bookmarklet_js}</pre>
+
+<div class="config-note">
+  <strong>Server URL:</strong> Currently configured for <code>{server}</code>.<br>
+  To change it, visit <code>/api/bookmarklet?server=http://your-host:port</code>.
+</div>
+</body>
+</html>"""
+
+
+def _bookmarklet_js(server: str = "http://localhost:3000") -> str:
+    """Return the bookmarklet JavaScript as a javascript: URL."""
+    server = server.rstrip("/")
+    return (
+        "javascript:void((function(){"
+        "var s='" + server + "';"
+        "var u=location.href;"
+        "var n=document.createElement('div');"
+        "n.style.cssText='position:fixed;top:16px;right:16px;z-index:2147483647;"
+        "padding:12px 20px;border-radius:8px;font:14px/1.4 -apple-system,sans-serif;"
+        "color:#fff;background:#2563eb;box-shadow:0 4px 12px rgba(0,0,0,.15);"
+        "transition:opacity .3s';"
+        "n.textContent='Saving to KB...';"
+        "document.body.appendChild(n);"
+        "fetch(s+'/api/ingest',{method:'POST',"
+        "headers:{'Content-Type':'application/json'},"
+        "body:JSON.stringify({url:u})})"
+        ".then(function(r){if(!r.ok)throw new Error(r.status);return r.json()})"
+        ".then(function(d){"
+        "n.style.background='#16a34a';"
+        "n.textContent='Saved to KB';"
+        "setTimeout(function(){n.style.opacity='0';"
+        "setTimeout(function(){n.remove()},400)},2000)})"
+        ".catch(function(e){"
+        "n.style.background='#dc2626';"
+        "n.textContent='Failed: '+e.message;"
+        "setTimeout(function(){n.style.opacity='0';"
+        "setTimeout(function(){n.remove()},400)},3000)})"
+        "})())"
+    )
+
+
 @app.post("/api/compile")
 async def compile_endpoint():
     from kb.compile import compile_kb

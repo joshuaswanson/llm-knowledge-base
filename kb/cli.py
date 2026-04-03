@@ -30,7 +30,29 @@ def ingest(sources: tuple[str, ...]):
             path = Path(source).expanduser().resolve()
             click.echo(f"Ingesting {path.name}...")
             dest = ingest_file(path)
-        click.echo(f"  Saved to {dest.relative_to(dest.parent.parent)}")
+        if isinstance(dest, list):
+            for p in dest:
+                click.echo(f"  Saved to {p.relative_to(p.parent.parent)}")
+        else:
+            click.echo(f"  Saved to {dest.relative_to(dest.parent.parent)}")
+
+
+@cli.command("ingest-podcast")
+@click.argument("rss_url")
+@click.option("--max-episodes", default=5, show_default=True, help="Maximum number of episodes to ingest.")
+def ingest_podcast(rss_url: str, max_episodes: int):
+    """Ingest episodes from a podcast RSS feed.
+
+    Fetches the RSS feed, extracts episode metadata, and saves
+    show notes and transcripts (when available) to the knowledge base.
+    """
+    from kb.ingest import ingest_podcast as _ingest_podcast
+
+    click.echo(f"Fetching podcast feed: {rss_url}")
+    paths = _ingest_podcast(rss_url, max_episodes=max_episodes)
+    click.echo(f"Ingested {len(paths)} episode(s):")
+    for p in paths:
+        click.echo(f"  {p.relative_to(p.parent.parent)}")
 
 
 @cli.command()
@@ -113,6 +135,36 @@ def slides(topic: str, output: str | None):
 
 
 @cli.command()
+@click.argument("topic")
+@click.option("-o", "--output", type=click.Path(), help="Output file path.")
+def chart(topic: str, output: str | None):
+    """Generate a matplotlib chart from wiki data."""
+    from kb.chart import generate_chart
+
+    output_path = Path(output) if output else None
+    generate_chart(topic, output=output_path)
+
+
+@cli.command("import-bookmarks")
+@click.argument("file", type=click.Path(exists=True))
+def import_bookmarks_cmd(file: str):
+    """Import bookmarks from a Twitter/X export (JSON) or browser export (HTML).
+
+    Accepts the standard Netscape bookmark HTML format exported by
+    Chrome, Firefox, and Safari, as well as the JSON format from
+    Twitter's data export.
+    """
+    from kb.import_bookmarks import import_bookmarks
+
+    path = Path(file).expanduser().resolve()
+    click.echo(f"Importing bookmarks from {path.name}...")
+    created = import_bookmarks(path)
+    click.echo(f"Imported {len(created)} bookmark(s) into raw/")
+    for dest in created:
+        click.echo(f"  {dest.name}")
+
+
+@cli.command()
 def status():
     """Show knowledge base statistics."""
     import json
@@ -144,6 +196,34 @@ def status():
     click.echo(f"  Concept articles:   {concept_count}")
     click.echo(f"  Saved queries:      {query_count}")
     click.echo(f"  Total words:        {total_words:,}")
+
+
+@cli.command()
+@click.option("--server", default="http://localhost:3000", help="Server URL for the bookmarklet.")
+def bookmarklet(server: str):
+    """Print the bookmarklet JavaScript for browser integration.
+
+    The bookmarklet sends the current page URL to the knowledge base
+    ingest endpoint. Drag it to your bookmarks bar or create a new
+    bookmark and paste the JavaScript as the URL.
+    """
+    from kb.web import _bookmarklet_js
+
+    js = _bookmarklet_js(server)
+    click.echo("Bookmarklet JavaScript")
+    click.echo("=" * 60)
+    click.echo()
+    click.echo(js)
+    click.echo()
+    click.echo("=" * 60)
+    click.echo()
+    click.echo("How to install:")
+    click.echo("  1. Create a new bookmark in your browser.")
+    click.echo("  2. Set the name to something like 'Save to KB'.")
+    click.echo("  3. Paste the JavaScript above as the URL.")
+    click.echo("  4. Navigate to any page and click the bookmark to ingest it.")
+    click.echo()
+    click.echo(f"Or visit {server}/api/bookmarklet to drag it directly to your bookmarks bar.")
 
 
 @cli.command()
