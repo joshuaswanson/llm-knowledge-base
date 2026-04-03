@@ -20,7 +20,7 @@ The LLM writes and maintains all wiki content. You rarely touch it directly.
 Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-git clone https://github.com/jswanson/llm-knowledge-base.git
+git clone https://github.com/joshuaswanson/llm-knowledge-base.git
 cd llm-knowledge-base
 uv sync
 ```
