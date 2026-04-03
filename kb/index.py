@@ -8,7 +8,10 @@ def _read_frontmatter(path) -> dict:
     if text.startswith("---"):
         parts = text.split("---", 2)
         if len(parts) >= 3:
-            return yaml.safe_load(parts[1]) or {}
+            try:
+                return yaml.safe_load(parts[1]) or {}
+            except yaml.YAMLError:
+                return {}
     return {}
 
 

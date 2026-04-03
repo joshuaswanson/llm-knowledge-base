@@ -2,12 +2,14 @@ import hashlib
 import json
 import re
 import shutil
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
 import trafilatura
 import yaml
+import yt_dlp
 
 from kb.config import RAW_DIR, STATE_PATH
 
@@ -42,7 +44,122 @@ def _write_raw_md(filename: str, content: str, metadata: dict) -> Path:
     return dest
 
 
+def _is_youtube_url(url: str) -> bool:
+    host = urlparse(url).netloc.lower().replace("www.", "")
+    return host in ("youtube.com", "youtu.be", "m.youtube.com")
+
+
+def _strip_subtitle_timing(text: str) -> str:
+    """Strip VTT/SRT timing cues and metadata, returning plain transcript text."""
+    # Remove VTT header
+    text = re.sub(r"^WEBVTT.*?\n\n", "", text, flags=re.DOTALL)
+    # Remove SRT sequence numbers (standalone digits on a line)
+    text = re.sub(r"^\d+\s*$", "", text, flags=re.MULTILINE)
+    # Remove timestamp lines (both VTT and SRT formats)
+    text = re.sub(
+        r"^\d{2}:\d{2}[:\.][\d.,]+ --> \d{2}:\d{2}[:\.][\d.,]+.*$",
+        "",
+        text,
+        flags=re.MULTILINE,
+    )
+    # Remove VTT positioning tags like <c>, </c>, etc.
+    text = re.sub(r"<[^>]+>", "", text)
+    # Collapse multiple blank lines and strip
+    lines = []
+    seen = set()
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        # Deduplicate repeated caption lines (common in auto-generated subs)
+        if line not in seen:
+            seen.add(line)
+            lines.append(line)
+    return "\n".join(lines)
+
+
+def ingest_youtube(url: str) -> Path:
+    """Ingest a YouTube video transcript into the knowledge base."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+
+        ydl_opts = {
+            "skip_download": True,
+            "writesubtitles": True,
+            "writeautomaticsub": True,
+            "subtitleslangs": ["en"],
+            "subtitlesformat": "vtt",
+            "outtmpl": str(tmp_path / "%(id)s"),
+            "quiet": True,
+            "no_warnings": True,
+        }
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+
+        title = info.get("title", "Untitled Video")
+        channel = info.get("channel") or info.get("uploader", "Unknown")
+        upload_date_raw = info.get("upload_date", "")
+        description = info.get("description", "")
+
+        # Format upload date from YYYYMMDD to YYYY-MM-DD
+        upload_date = upload_date_raw
+        if upload_date_raw and len(upload_date_raw) == 8:
+            upload_date = f"{upload_date_raw[:4]}-{upload_date_raw[4:6]}-{upload_date_raw[6:8]}"
+
+        # Find the downloaded subtitle file
+        transcript_text = ""
+        sub_files = list(tmp_path.glob("*.vtt")) + list(tmp_path.glob("*.srt"))
+        if sub_files:
+            raw_subs = sub_files[0].read_text(errors="replace")
+            transcript_text = _strip_subtitle_timing(raw_subs)
+
+        if not transcript_text:
+            raise ValueError(
+                f"No English subtitles available for: {url}\n"
+                "The video may not have captions enabled."
+            )
+
+        # Build the markdown body
+        body_parts = []
+        if description:
+            body_parts.append(f"## Description\n\n{description.strip()}")
+        body_parts.append(f"## Transcript\n\n{transcript_text}")
+        body = "\n\n".join(body_parts)
+
+        slug = _slugify(title)
+        filename = f"{slug}.md"
+
+        metadata = {
+            "title": title,
+            "source_url": url,
+            "source_type": "youtube",
+            "channel": channel,
+            "upload_date": upload_date,
+            "ingested_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        dest = _write_raw_md(filename, body, metadata)
+
+    state = _load_state()
+    state["sources"][filename] = {
+        "type": "youtube",
+        "url": url,
+        "title": title,
+        "channel": channel,
+        "hash": _file_hash(dest),
+        "ingested_at": metadata["ingested_at"],
+        "compiled": False,
+    }
+    _save_state(state)
+
+    return dest
+
+
 def ingest_url(url: str) -> Path:
+    if _is_youtube_url(url):
+        return ingest_youtube(url)
+
     downloaded = trafilatura.fetch_url(url)
     if not downloaded:
         raise ValueError(f"Failed to fetch URL: {url}")

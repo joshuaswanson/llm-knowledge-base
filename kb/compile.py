@@ -69,7 +69,7 @@ Existing concepts in the wiki (link to these with [[Name]] where relevant):
 
 ---
 SOURCE CONTENT:
-{body[:50000]}
+{body[:20000]}
 ---
 
 Write a comprehensive summary article for this source. Include:
@@ -105,7 +105,7 @@ Write a wiki article about the concept: "{concept}"
 
 Use the following source articles as context (these are summaries from the knowledge base):
 
-{context[:40000]}
+{context[:15000]}
 
 Existing concepts in the wiki (link to these with [[Name]] where relevant):
 {existing_str}

@@ -13,20 +13,24 @@ def cli():
 
 
 @cli.command()
-@click.argument("source")
-def ingest(source: str):
-    """Ingest a file or URL into the knowledge base."""
+@click.argument("sources", nargs=-1, required=True)
+def ingest(sources: tuple[str, ...]):
+    """Ingest files or URLs into the knowledge base.
+
+    Accepts multiple sources at once. URLs are auto-detected.
+    YouTube URLs are handled specially (transcript extraction).
+    """
     from kb.ingest import ingest_file, ingest_url
 
-    if source.startswith(("http://", "https://")):
-        click.echo(f"Fetching {source}...")
-        dest = ingest_url(source)
-    else:
-        path = Path(source).expanduser().resolve()
-        click.echo(f"Ingesting {path.name}...")
-        dest = ingest_file(path)
-
-    click.echo(f"Saved to {dest.relative_to(dest.parent.parent)}")
+    for source in sources:
+        if source.startswith(("http://", "https://")):
+            click.echo(f"Fetching {source}...")
+            dest = ingest_url(source)
+        else:
+            path = Path(source).expanduser().resolve()
+            click.echo(f"Ingesting {path.name}...")
+            dest = ingest_file(path)
+        click.echo(f"  Saved to {dest.relative_to(dest.parent.parent)}")
 
 
 @cli.command()
@@ -46,12 +50,13 @@ def compile(force: bool):
 @cli.command()
 @click.argument("question")
 @click.option("-o", "--output", type=click.Path(), help="Write answer to a file.")
-def query(question: str, output: str | None):
+@click.option("--save", is_flag=True, help="Save answer back into the wiki.")
+def query(question: str, output: str | None, save: bool):
     """Ask a question against the knowledge base."""
     from kb.query import query_kb
 
     output_path = Path(output) if output else None
-    answer = query_kb(question, output_file=output_path)
+    answer = query_kb(question, output_file=output_path, save_to_wiki=save)
     click.echo(answer)
 
 
@@ -97,6 +102,17 @@ def lint(no_llm: bool):
 
 
 @cli.command()
+@click.argument("topic")
+@click.option("-o", "--output", type=click.Path(), help="Output file path.")
+def slides(topic: str, output: str | None):
+    """Generate a Marp slide deck from wiki content."""
+    from kb.slides import generate_slides
+
+    output_path = Path(output) if output else None
+    generate_slides(topic, output=output_path)
+
+
+@cli.command()
 def status():
     """Show knowledge base statistics."""
     import json
@@ -106,6 +122,9 @@ def status():
     raw_count = len(list(RAW_DIR.glob("*"))) if RAW_DIR.exists() else 0
     concept_count = len(list(CONCEPTS_DIR.glob("*.md"))) if CONCEPTS_DIR.exists() else 0
     source_count = len(list(SOURCES_DIR.glob("*.md"))) if SOURCES_DIR.exists() else 0
+
+    queries_dir = WIKI_DIR / "queries"
+    query_count = len(list(queries_dir.glob("*.md"))) if queries_dir.exists() else 0
 
     total_words = 0
     for d in [CONCEPTS_DIR, SOURCES_DIR]:
@@ -119,8 +138,57 @@ def status():
         compiled = sum(1 for s in state.get("sources", {}).values() if s.get("compiled"))
 
     click.echo("Knowledge Base Status")
-    click.echo(f"  Raw sources:      {raw_count}")
-    click.echo(f"  Compiled:         {compiled}")
-    click.echo(f"  Source articles:   {source_count}")
-    click.echo(f"  Concept articles:  {concept_count}")
-    click.echo(f"  Total words:       {total_words:,}")
+    click.echo(f"  Raw sources:       {raw_count}")
+    click.echo(f"  Compiled:          {compiled}")
+    click.echo(f"  Source articles:    {source_count}")
+    click.echo(f"  Concept articles:   {concept_count}")
+    click.echo(f"  Saved queries:      {query_count}")
+    click.echo(f"  Total words:        {total_words:,}")
+
+
+@cli.command()
+@click.option("--host", default="127.0.0.1", help="Host to bind to.")
+@click.option("--port", default=3000, help="Port to bind to.")
+def serve(host: str, port: int):
+    """Launch the web UI."""
+    import uvicorn
+
+    click.echo(f"Starting web UI at http://{host}:{port}")
+    uvicorn.run("kb.web:app", host=host, port=port, reload=True)
+
+
+@cli.command()
+@click.argument("directory", type=click.Path(exists=True))
+@click.option("--compile-after", is_flag=True, help="Run compile after ingesting.")
+def watch(directory: str, compile_after: bool):
+    """Watch a directory and ingest new files automatically."""
+    import time
+
+    from kb.ingest import ingest_file
+
+    watch_dir = Path(directory).resolve()
+    seen: set[str] = set()
+
+    # Index existing files
+    for p in watch_dir.iterdir():
+        seen.add(str(p))
+
+    click.echo(f"Watching {watch_dir} for new files... (Ctrl+C to stop)")
+
+    try:
+        while True:
+            for p in watch_dir.iterdir():
+                if str(p) not in seen and p.is_file():
+                    seen.add(str(p))
+                    click.echo(f"New file: {p.name}")
+                    try:
+                        dest = ingest_file(p)
+                        click.echo(f"  Ingested to {dest.name}")
+                        if compile_after:
+                            from kb.compile import compile_kb
+                            compile_kb()
+                    except Exception as e:
+                        click.echo(f"  Error: {e}")
+            time.sleep(2)
+    except KeyboardInterrupt:
+        click.echo("\nStopped watching.")

@@ -41,7 +41,7 @@ def _gather_context(question: str, max_chars: int = 80000) -> str:
     return "\n\n---\n\n".join(parts)
 
 
-def query_kb(question: str, output_file: Path | None = None) -> str:
+def query_kb(question: str, output_file: Path | None = None, save_to_wiki: bool = False) -> str:
     context = _gather_context(question)
 
     if not context.strip():
@@ -63,4 +63,38 @@ Provide a thorough, well-structured answer. Reference specific articles where re
         output_file.write_text(answer)
         click.echo(f"Answer written to {output_file}")
 
+    if save_to_wiki:
+        _file_to_wiki(question, answer)
+
     return answer
+
+
+def _file_to_wiki(question: str, answer: str) -> Path:
+    import re
+    from datetime import datetime, timezone
+
+    import yaml
+
+    from kb.config import WIKI_DIR
+
+    queries_dir = WIKI_DIR / "queries"
+    queries_dir.mkdir(parents=True, exist_ok=True)
+
+    slug = re.sub(r"[^\w\s-]", "", question.lower().strip())
+    slug = re.sub(r"[\s_]+", "-", slug)[:80].strip("-")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    filename = f"{slug}-{timestamp}.md"
+
+    meta = {
+        "title": question,
+        "type": "query",
+        "asked_at": datetime.now(timezone.utc).isoformat(),
+        "tags": ["query"],
+    }
+    frontmatter = yaml.dump(meta, default_flow_style=False, allow_unicode=True).strip()
+    content = f"---\n{frontmatter}\n---\n\n# {question}\n\n{answer}"
+
+    dest = queries_dir / filename
+    dest.write_text(content)
+    click.echo(f"Answer filed to wiki: {dest.relative_to(WIKI_DIR)}")
+    return dest
