@@ -300,3 +300,14 @@ def watch(directory: str, compile_after: bool):
             time.sleep(2)
     except KeyboardInterrupt:
         click.echo("\nStopped watching.")
+
+
+@cli.command()
+@click.option("--host", default="127.0.0.1")
+@click.option("--port", default=3000)
+def serve(host, port):
+    """Start the web UI."""
+    import uvicorn
+
+    click.echo(f"Starting web UI at http://{host}:{port}")
+    uvicorn.run("kb.web:app", host=host, port=port, reload=True)

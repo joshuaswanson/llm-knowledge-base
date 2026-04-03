@@ -1,0 +1,1509 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Knowledge Base</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@300;400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+      *,
+      *::before,
+      *::after {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      :root {
+        --bg-deep: #08080d;
+        --bg: #0d0d14;
+        --bg-surface: #13131e;
+        --bg-elevated: #1a1a28;
+        --bg-hover: #222234;
+        --border: #2a2a3d;
+        --border-subtle: #1e1e30;
+        --text: #e2ded6;
+        --text-secondary: #8a8698;
+        --text-muted: #55516a;
+        --accent: #c9a86c;
+        --accent-dim: #a08550;
+        --accent-glow: rgba(201, 168, 108, 0.12);
+        --concept: #7ea8be;
+        --source: #be917e;
+        --success: #7ebe8a;
+        --danger: #be7e7e;
+        --font-display: "Cormorant Garamond", "Georgia", serif;
+        --font-mono: "JetBrains Mono", "Menlo", monospace;
+        --radius: 4px;
+        --transition: 180ms ease;
+      }
+
+      html,
+      body {
+        height: 100%;
+      }
+
+      body {
+        font-family: var(--font-mono);
+        font-size: 13px;
+        font-weight: 400;
+        color: var(--text);
+        background: var(--bg);
+        display: flex;
+        overflow: hidden;
+        line-height: 1.6;
+      }
+
+      /* Scrollbar */
+      ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: var(--border);
+        border-radius: 3px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: var(--text-muted);
+      }
+
+      /* ---- Sidebar Nav ---- */
+      .sidebar {
+        width: 56px;
+        background: var(--bg-deep);
+        border-right: 1px solid var(--border-subtle);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 16px 0;
+        gap: 4px;
+        flex-shrink: 0;
+        z-index: 10;
+      }
+
+      .sidebar .logo {
+        font-family: var(--font-display);
+        font-size: 24px;
+        font-weight: 700;
+        color: var(--accent);
+        margin-bottom: 20px;
+        letter-spacing: -1px;
+        cursor: default;
+        user-select: none;
+      }
+
+      .nav-btn {
+        width: 40px;
+        height: 40px;
+        border: none;
+        background: transparent;
+        color: var(--text-muted);
+        cursor: pointer;
+        border-radius: var(--radius);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all var(--transition);
+        position: relative;
+      }
+
+      .nav-btn:hover {
+        color: var(--text-secondary);
+        background: var(--bg-hover);
+      }
+
+      .nav-btn.active {
+        color: var(--accent);
+        background: var(--accent-glow);
+      }
+
+      .nav-btn.active::before {
+        content: "";
+        position: absolute;
+        left: -8px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 3px;
+        height: 20px;
+        background: var(--accent);
+        border-radius: 0 2px 2px 0;
+      }
+
+      .nav-btn svg {
+        width: 20px;
+        height: 20px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 1.5;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      /* ---- Main Content ---- */
+      .main {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        min-width: 0;
+      }
+
+      .view {
+        display: none;
+        flex: 1;
+        overflow: hidden;
+      }
+
+      .view.active {
+        display: flex;
+        flex-direction: column;
+      }
+
+      /* ---- View Header ---- */
+      .view-header {
+        padding: 24px 32px 16px;
+        border-bottom: 1px solid var(--border-subtle);
+        flex-shrink: 0;
+      }
+
+      .view-header h1 {
+        font-family: var(--font-display);
+        font-size: 32px;
+        font-weight: 600;
+        color: var(--text);
+        letter-spacing: -0.5px;
+        line-height: 1.2;
+      }
+
+      .view-header p {
+        color: var(--text-muted);
+        font-size: 12px;
+        margin-top: 4px;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+      }
+
+      /* ---- Dashboard ---- */
+      .dashboard-content {
+        flex: 1;
+        overflow-y: auto;
+        padding: 24px 32px;
+      }
+
+      .stats-row {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+        margin-bottom: 32px;
+      }
+
+      .stat-card {
+        background: var(--bg-surface);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius);
+        padding: 20px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .stat-card::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 1px;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          var(--accent-dim),
+          transparent
+        );
+        opacity: 0.5;
+      }
+
+      .stat-card .label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--text-muted);
+        margin-bottom: 8px;
+      }
+
+      .stat-card .value {
+        font-family: var(--font-display);
+        font-size: 36px;
+        font-weight: 700;
+        color: var(--accent);
+        line-height: 1;
+      }
+
+      .section-label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        color: var(--text-muted);
+        margin-bottom: 12px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid var(--border-subtle);
+      }
+
+      .action-row {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 32px;
+        align-items: stretch;
+      }
+
+      .ingest-group {
+        flex: 1;
+        display: flex;
+        gap: 8px;
+      }
+
+      .ingest-group input {
+        flex: 1;
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 10px 14px;
+        color: var(--text);
+        font-family: var(--font-mono);
+        font-size: 13px;
+        outline: none;
+        transition: border-color var(--transition);
+      }
+
+      .ingest-group input::placeholder {
+        color: var(--text-muted);
+      }
+      .ingest-group input:focus {
+        border-color: var(--accent-dim);
+      }
+
+      .btn {
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 10px 18px;
+        color: var(--text-secondary);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        cursor: pointer;
+        transition: all var(--transition);
+        white-space: nowrap;
+        letter-spacing: 0.3px;
+      }
+
+      .btn:hover {
+        background: var(--bg-hover);
+        color: var(--text);
+        border-color: var(--accent-dim);
+      }
+
+      .btn-accent {
+        background: var(--accent-glow);
+        border-color: var(--accent-dim);
+        color: var(--accent);
+      }
+
+      .btn-accent:hover {
+        background: rgba(201, 168, 108, 0.2);
+        color: var(--accent);
+      }
+
+      .btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      .recent-list {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .recent-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 14px;
+        border-radius: var(--radius);
+        cursor: pointer;
+        transition: background var(--transition);
+      }
+
+      .recent-item:hover {
+        background: var(--bg-surface);
+      }
+
+      .recent-item .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+
+      .recent-item .dot.concept {
+        background: var(--concept);
+      }
+      .recent-item .dot.source {
+        background: var(--source);
+      }
+
+      .recent-item .item-title {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .recent-item .item-meta {
+        color: var(--text-muted);
+        font-size: 11px;
+        flex-shrink: 0;
+      }
+
+      /* ---- Browse ---- */
+      .browse-layout {
+        flex: 1;
+        display: flex;
+        overflow: hidden;
+      }
+
+      .browse-sidebar {
+        width: 260px;
+        border-right: 1px solid var(--border-subtle);
+        overflow-y: auto;
+        flex-shrink: 0;
+        padding: 16px;
+      }
+
+      .browse-sidebar .group-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        color: var(--text-muted);
+        margin: 16px 0 8px;
+        padding-left: 8px;
+      }
+
+      .browse-sidebar .group-label:first-child {
+        margin-top: 0;
+      }
+
+      .article-link {
+        display: block;
+        padding: 7px 10px;
+        border-radius: var(--radius);
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: all var(--transition);
+        font-size: 12px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .article-link:hover {
+        background: var(--bg-hover);
+        color: var(--text);
+      }
+      .article-link.active {
+        background: var(--accent-glow);
+        color: var(--accent);
+      }
+
+      .browse-main {
+        flex: 1;
+        overflow-y: auto;
+        padding: 32px 40px;
+        min-width: 0;
+      }
+
+      .browse-empty {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        color: var(--text-muted);
+        font-size: 13px;
+        letter-spacing: 0.5px;
+      }
+
+      .article-view {
+      }
+
+      .article-view .article-title {
+        font-family: var(--font-display);
+        font-size: 36px;
+        font-weight: 600;
+        line-height: 1.2;
+        margin-bottom: 12px;
+        letter-spacing: -0.5px;
+      }
+
+      .article-view .article-tags {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin-bottom: 24px;
+      }
+
+      .tag {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        padding: 3px 8px;
+        border-radius: 2px;
+        background: var(--bg-elevated);
+        border: 1px solid var(--border-subtle);
+        color: var(--text-muted);
+      }
+
+      .article-body {
+        line-height: 1.75;
+        max-width: 720px;
+      }
+
+      .article-body h1,
+      .article-body h2,
+      .article-body h3,
+      .article-body h4 {
+        font-family: var(--font-display);
+        font-weight: 600;
+        letter-spacing: -0.3px;
+        margin: 1.5em 0 0.5em;
+        color: var(--text);
+      }
+
+      .article-body h1 {
+        font-size: 28px;
+      }
+      .article-body h2 {
+        font-size: 22px;
+      }
+      .article-body h3 {
+        font-size: 18px;
+      }
+
+      .article-body p {
+        margin-bottom: 0.8em;
+        color: var(--text-secondary);
+      }
+
+      .article-body ul,
+      .article-body ol {
+        padding-left: 20px;
+        margin-bottom: 0.8em;
+        color: var(--text-secondary);
+      }
+      .article-body li {
+        margin-bottom: 0.3em;
+      }
+
+      .article-body a,
+      .article-body .wikilink {
+        color: var(--accent);
+        text-decoration: none;
+        border-bottom: 1px solid transparent;
+        cursor: pointer;
+        transition: border-color var(--transition);
+      }
+
+      .article-body a:hover,
+      .article-body .wikilink:hover {
+        border-bottom-color: var(--accent-dim);
+      }
+
+      .article-body code {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        background: var(--bg-elevated);
+        padding: 2px 6px;
+        border-radius: 2px;
+        border: 1px solid var(--border-subtle);
+      }
+
+      .article-body pre {
+        background: var(--bg-surface);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius);
+        padding: 16px;
+        overflow-x: auto;
+        margin-bottom: 1em;
+      }
+
+      .article-body pre code {
+        background: none;
+        border: none;
+        padding: 0;
+      }
+
+      .article-body blockquote {
+        border-left: 2px solid var(--accent-dim);
+        padding-left: 16px;
+        margin: 1em 0;
+        color: var(--text-muted);
+        font-style: italic;
+      }
+
+      .article-body strong {
+        color: var(--text);
+        font-weight: 500;
+      }
+
+      /* ---- Search ---- */
+      .search-content {
+        flex: 1;
+        overflow-y: auto;
+        padding: 0 32px 32px;
+      }
+
+      .search-input-row {
+        display: flex;
+        gap: 10px;
+        padding: 24px 32px 20px;
+        flex-shrink: 0;
+      }
+
+      .search-input-row input {
+        flex: 1;
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 12px 16px;
+        color: var(--text);
+        font-family: var(--font-mono);
+        font-size: 14px;
+        outline: none;
+        transition: border-color var(--transition);
+      }
+
+      .search-input-row input::placeholder {
+        color: var(--text-muted);
+      }
+      .search-input-row input:focus {
+        border-color: var(--accent-dim);
+      }
+
+      .search-result {
+        padding: 16px;
+        border-bottom: 1px solid var(--border-subtle);
+        cursor: pointer;
+        transition: background var(--transition);
+      }
+
+      .search-result:hover {
+        background: var(--bg-surface);
+      }
+
+      .search-result .sr-title {
+        font-family: var(--font-display);
+        font-size: 18px;
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+
+      .search-result .sr-score {
+        font-size: 11px;
+        color: var(--accent-dim);
+        letter-spacing: 0.5px;
+      }
+
+      .search-result .sr-snippet {
+        font-size: 12px;
+        color: var(--text-muted);
+        margin-top: 6px;
+        line-height: 1.5;
+      }
+
+      .no-results {
+        text-align: center;
+        color: var(--text-muted);
+        padding: 48px 0;
+        font-size: 13px;
+      }
+
+      /* ---- Chat ---- */
+      .chat-layout {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      .chat-messages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 24px 32px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      .chat-msg {
+        max-width: 680px;
+        padding: 14px 18px;
+        border-radius: var(--radius);
+        line-height: 1.65;
+        font-size: 13px;
+      }
+
+      .chat-msg.user {
+        align-self: flex-end;
+        background: var(--accent-glow);
+        border: 1px solid rgba(201, 168, 108, 0.2);
+        color: var(--text);
+      }
+
+      .chat-msg.assistant {
+        align-self: flex-start;
+        background: var(--bg-surface);
+        border: 1px solid var(--border-subtle);
+        color: var(--text-secondary);
+      }
+
+      .chat-msg.assistant .article-body {
+        max-width: none;
+      }
+      .chat-msg.assistant .article-body p:last-child {
+        margin-bottom: 0;
+      }
+      .chat-msg.assistant .article-body h1,
+      .chat-msg.assistant .article-body h2,
+      .chat-msg.assistant .article-body h3 {
+        margin-top: 0.8em;
+      }
+
+      .chat-msg.loading {
+        color: var(--text-muted);
+        font-style: italic;
+      }
+
+      .chat-input-row {
+        display: flex;
+        gap: 10px;
+        padding: 16px 32px 24px;
+        border-top: 1px solid var(--border-subtle);
+        flex-shrink: 0;
+      }
+
+      .chat-input-row input {
+        flex: 1;
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 12px 16px;
+        color: var(--text);
+        font-family: var(--font-mono);
+        font-size: 13px;
+        outline: none;
+        transition: border-color var(--transition);
+      }
+
+      .chat-input-row input::placeholder {
+        color: var(--text-muted);
+      }
+      .chat-input-row input:focus {
+        border-color: var(--accent-dim);
+      }
+
+      /* ---- Graph ---- */
+      .graph-container {
+        flex: 1;
+        position: relative;
+        overflow: hidden;
+        background: var(--bg-deep);
+      }
+
+      .graph-container svg {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+
+      .graph-legend {
+        position: absolute;
+        bottom: 20px;
+        left: 20px;
+        background: var(--bg-surface);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius);
+        padding: 12px 16px;
+        display: flex;
+        gap: 16px;
+        font-size: 11px;
+        letter-spacing: 0.5px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+      }
+
+      .graph-legend .leg-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        display: inline-block;
+        margin-right: 6px;
+        vertical-align: middle;
+      }
+
+      .graph-tooltip {
+        position: absolute;
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 8px 12px;
+        font-size: 12px;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 120ms;
+        z-index: 20;
+      }
+
+      .graph-tooltip .tt-title {
+        font-family: var(--font-display);
+        font-size: 15px;
+        font-weight: 600;
+        margin-bottom: 2px;
+      }
+
+      .graph-tooltip .tt-meta {
+        color: var(--text-muted);
+        font-size: 11px;
+      }
+
+      /* ---- Toast ---- */
+      .toast-container {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        z-index: 100;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .toast {
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 10px 16px;
+        font-size: 12px;
+        color: var(--text-secondary);
+        animation: toast-in 200ms ease;
+        max-width: 320px;
+      }
+
+      .toast.success {
+        border-left: 3px solid var(--success);
+      }
+      .toast.error {
+        border-left: 3px solid var(--danger);
+      }
+
+      @keyframes toast-in {
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      /* ---- Fade-in ---- */
+      @keyframes fade-in {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .fade-in {
+        animation: fade-in 300ms ease both;
+      }
+      .fade-in-1 {
+        animation-delay: 50ms;
+      }
+      .fade-in-2 {
+        animation-delay: 100ms;
+      }
+      .fade-in-3 {
+        animation-delay: 150ms;
+      }
+      .fade-in-4 {
+        animation-delay: 200ms;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Sidebar Navigation -->
+    <nav class="sidebar">
+      <div class="logo">kb</div>
+      <button class="nav-btn active" data-view="dashboard" title="Dashboard">
+        <svg viewBox="0 0 24 24">
+          <rect x="3" y="3" width="7" height="7" rx="1" />
+          <rect x="14" y="3" width="7" height="7" rx="1" />
+          <rect x="3" y="14" width="7" height="7" rx="1" />
+          <rect x="14" y="14" width="7" height="7" rx="1" />
+        </svg>
+      </button>
+      <button class="nav-btn" data-view="browse" title="Browse">
+        <svg viewBox="0 0 24 24">
+          <path d="M4 19.5A2.5 2.5 0 016.5 17H20" />
+          <path
+            d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"
+          />
+        </svg>
+      </button>
+      <button class="nav-btn" data-view="search" title="Search">
+        <svg viewBox="0 0 24 24">
+          <circle cx="11" cy="11" r="8" />
+          <path d="M21 21l-4.35-4.35" />
+        </svg>
+      </button>
+      <button class="nav-btn" data-view="chat" title="Chat">
+        <svg viewBox="0 0 24 24">
+          <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+        </svg>
+      </button>
+      <button class="nav-btn" data-view="graph" title="Graph">
+        <svg viewBox="0 0 24 24">
+          <circle cx="12" cy="5" r="2.5" />
+          <circle cx="5" cy="19" r="2.5" />
+          <circle cx="19" cy="19" r="2.5" />
+          <path d="M12 7.5V12m-5.2 3.5L12 12m5.2 3.5L12 12" />
+        </svg>
+      </button>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="main">
+      <!-- Dashboard View -->
+      <div id="view-dashboard" class="view active">
+        <div class="view-header">
+          <h1>Dashboard</h1>
+          <p>Knowledge base overview</p>
+        </div>
+        <div class="dashboard-content">
+          <div class="stats-row fade-in">
+            <div class="stat-card">
+              <div class="label">Concepts</div>
+              <div class="value" id="stat-concepts">--</div>
+            </div>
+            <div class="stat-card">
+              <div class="label">Sources</div>
+              <div class="value" id="stat-sources">--</div>
+            </div>
+            <div class="stat-card">
+              <div class="label">Total Words</div>
+              <div class="value" id="stat-words">--</div>
+            </div>
+          </div>
+
+          <div class="section-label fade-in fade-in-1">Ingest</div>
+          <div class="action-row fade-in fade-in-1">
+            <div class="ingest-group">
+              <input
+                type="text"
+                id="ingest-url"
+                placeholder="Paste a URL to ingest..."
+              />
+              <button class="btn btn-accent" id="btn-ingest">Ingest</button>
+            </div>
+            <button class="btn" id="btn-compile">Compile KB</button>
+          </div>
+
+          <div class="section-label fade-in fade-in-2">Articles</div>
+          <div class="recent-list fade-in fade-in-3" id="recent-articles"></div>
+        </div>
+      </div>
+
+      <!-- Browse View -->
+      <div id="view-browse" class="view">
+        <div class="browse-layout">
+          <div class="browse-sidebar" id="browse-sidebar"></div>
+          <div class="browse-main" id="browse-main">
+            <div class="browse-empty">Select an article to read</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Search View -->
+      <div id="view-search" class="view">
+        <div class="search-input-row">
+          <input
+            type="text"
+            id="search-input"
+            placeholder="Search the knowledge base..."
+          />
+          <button class="btn btn-accent" id="btn-search">Search</button>
+        </div>
+        <div class="search-content" id="search-results">
+          <div class="no-results">Enter a query to search</div>
+        </div>
+      </div>
+
+      <!-- Chat View -->
+      <div id="view-chat" class="view">
+        <div class="view-header">
+          <h1>Chat</h1>
+          <p>Ask questions about your knowledge base</p>
+        </div>
+        <div class="chat-layout">
+          <div class="chat-messages" id="chat-messages"></div>
+          <div class="chat-input-row">
+            <input
+              type="text"
+              id="chat-input"
+              placeholder="Ask a question..."
+            />
+            <button class="btn btn-accent" id="btn-chat">Ask</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Graph View -->
+      <div id="view-graph" class="view">
+        <div class="graph-container" id="graph-container">
+          <div class="graph-legend">
+            <span
+              ><span class="leg-dot" style="background: var(--concept)"></span
+              >Concept</span
+            >
+            <span
+              ><span class="leg-dot" style="background: var(--source)"></span
+              >Source</span
+            >
+          </div>
+          <div class="graph-tooltip" id="graph-tooltip">
+            <div class="tt-title"></div>
+            <div class="tt-meta"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toasts"></div>
+
+    <script>
+      // ---- Utilities ----
+      const $ = (sel, ctx = document) => ctx.querySelector(sel);
+      const $$ = (sel, ctx = document) => [...ctx.querySelectorAll(sel)];
+
+      function toast(msg, type = "success") {
+        const el = document.createElement("div");
+        el.className = `toast ${type}`;
+        el.textContent = msg;
+        $("#toasts").appendChild(el);
+        setTimeout(() => {
+          el.style.opacity = "0";
+          setTimeout(() => el.remove(), 300);
+        }, 3000);
+      }
+
+      async function api(path, opts = {}) {
+        const res = await fetch(`/api${path}`, {
+          headers: { "Content-Type": "application/json" },
+          ...opts,
+        });
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+        return res.json();
+      }
+
+      function renderMarkdown(md) {
+        // Convert [[wikilinks]] to clickable spans before marked processes it
+        const withLinks = md.replace(/\[\[([^\]]+)\]\]/g, (_, name) => {
+          return `<span class="wikilink" data-link="${name}">${name}</span>`;
+        });
+        return marked.parse(withLinks);
+      }
+
+      function formatNumber(n) {
+        if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, "") + "k";
+        return String(n);
+      }
+
+      // ---- Navigation ----
+      let currentView = "dashboard";
+      let graphInitialized = false;
+      let articlesCache = null;
+
+      $$(".nav-btn").forEach((btn) => {
+        btn.addEventListener("click", () => switchView(btn.dataset.view));
+      });
+
+      function switchView(view) {
+        currentView = view;
+        $$(".nav-btn").forEach((b) =>
+          b.classList.toggle("active", b.dataset.view === view),
+        );
+        $$(".view").forEach((v) =>
+          v.classList.toggle("active", v.id === `view-${view}`),
+        );
+
+        if (view === "dashboard") loadDashboard();
+        if (view === "browse") loadBrowse();
+        if (view === "graph" && !graphInitialized) loadGraph();
+      }
+
+      // ---- Dashboard ----
+      async function loadDashboard() {
+        try {
+          const [status, articles] = await Promise.all([
+            api("/status"),
+            api("/articles"),
+          ]);
+          articlesCache = articles;
+          $("#stat-concepts").textContent = status.concepts;
+          $("#stat-sources").textContent = status.sources;
+          $("#stat-words").textContent = formatNumber(status.total_words);
+
+          const list = $("#recent-articles");
+          list.innerHTML = "";
+          articles.slice(0, 20).forEach((a) => {
+            const el = document.createElement("div");
+            el.className = "recent-item";
+            el.innerHTML = `
+        <span class="dot ${a.group}"></span>
+        <span class="item-title">${a.title}</span>
+        <span class="item-meta">${a.words} words</span>
+      `;
+            el.addEventListener("click", () => {
+              switchView("browse");
+              openArticle(a.path);
+            });
+            list.appendChild(el);
+          });
+        } catch (e) {
+          console.error("Dashboard load failed:", e);
+        }
+      }
+
+      // Ingest
+      $("#btn-ingest").addEventListener("click", async () => {
+        const url = $("#ingest-url").value.trim();
+        if (!url) return;
+        const btn = $("#btn-ingest");
+        btn.disabled = true;
+        btn.textContent = "Ingesting...";
+        try {
+          await api("/ingest", {
+            method: "POST",
+            body: JSON.stringify({ url }),
+          });
+          toast("URL ingested successfully");
+          $("#ingest-url").value = "";
+          loadDashboard();
+        } catch (e) {
+          toast("Ingest failed: " + e.message, "error");
+        } finally {
+          btn.disabled = false;
+          btn.textContent = "Ingest";
+        }
+      });
+
+      $("#ingest-url").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") $("#btn-ingest").click();
+      });
+
+      // Compile
+      $("#btn-compile").addEventListener("click", async () => {
+        const btn = $("#btn-compile");
+        btn.disabled = true;
+        btn.textContent = "Compiling...";
+        try {
+          const r = await api("/compile", { method: "POST" });
+          toast(
+            `Compiled ${r.sources_compiled} sources, ${r.concepts_created} concepts created`,
+          );
+          loadDashboard();
+        } catch (e) {
+          toast("Compile failed: " + e.message, "error");
+        } finally {
+          btn.disabled = false;
+          btn.textContent = "Compile KB";
+        }
+      });
+
+      // ---- Browse ----
+      let currentArticlePath = null;
+
+      async function loadBrowse() {
+        if (!articlesCache) articlesCache = await api("/articles");
+        const sidebar = $("#browse-sidebar");
+        sidebar.innerHTML = "";
+
+        const concepts = articlesCache.filter((a) => a.group === "concept");
+        const sources = articlesCache.filter((a) => a.group === "source");
+
+        if (concepts.length) {
+          sidebar.innerHTML += '<div class="group-label">Concepts</div>';
+          concepts.forEach((a) => {
+            const el = document.createElement("div");
+            el.className = `article-link${a.path === currentArticlePath ? " active" : ""}`;
+            el.textContent = a.title;
+            el.addEventListener("click", () => openArticle(a.path));
+            sidebar.appendChild(el);
+          });
+        }
+
+        if (sources.length) {
+          sidebar.innerHTML += '<div class="group-label">Sources</div>';
+          sources.forEach((a) => {
+            const el = document.createElement("div");
+            el.className = `article-link${a.path === currentArticlePath ? " active" : ""}`;
+            el.textContent = a.title;
+            el.addEventListener("click", () => openArticle(a.path));
+            sidebar.appendChild(el);
+          });
+        }
+
+        if (!concepts.length && !sources.length) {
+          sidebar.innerHTML =
+            '<div style="padding:16px;color:var(--text-muted);font-size:12px">No articles yet</div>';
+        }
+      }
+
+      async function openArticle(path) {
+        currentArticlePath = path;
+        const main = $("#browse-main");
+        main.innerHTML = '<div class="browse-empty">Loading...</div>';
+
+        // Ensure we are on browse view
+        if (currentView !== "browse") switchView("browse");
+
+        try {
+          const a = await api(`/article/${path}`);
+          const tagsHtml = (a.tags || [])
+            .map((t) => `<span class="tag">${t}</span>`)
+            .join("");
+          main.innerHTML = `
+      <div class="article-view fade-in">
+        <div class="article-title">${a.title}</div>
+        <div class="article-tags">${tagsHtml}</div>
+        <div class="article-body">${renderMarkdown(a.markdown)}</div>
+      </div>
+    `;
+
+          // Make wikilinks clickable
+          $$(".wikilink", main).forEach((el) => {
+            el.addEventListener("click", () => {
+              const name = el.dataset.link;
+              navigateToWikilink(name);
+            });
+          });
+
+          // Update sidebar active state
+          $$(".article-link", $("#browse-sidebar")).forEach((el) => {
+            el.classList.toggle("active", el.textContent === a.title);
+          });
+        } catch (e) {
+          main.innerHTML = `<div class="browse-empty">Failed to load article</div>`;
+        }
+      }
+
+      async function navigateToWikilink(name) {
+        if (!articlesCache) articlesCache = await api("/articles");
+        const slug = name
+          .toLowerCase()
+          .replace(/[^\w\s-]/g, "")
+          .replace(/[\s_]+/g, "-")
+          .replace(/-+/g, "-")
+          .replace(/^-|-$/g, "");
+        const match =
+          articlesCache.find((a) => {
+            const aSlug = a.path.split("/").pop().replace(".md", "");
+            return aSlug === slug;
+          }) ||
+          articlesCache.find(
+            (a) => a.title.toLowerCase() === name.toLowerCase(),
+          );
+
+        if (match) {
+          openArticle(match.path);
+        } else {
+          toast(`Article "${name}" not found`, "error");
+        }
+      }
+
+      // ---- Search ----
+      async function doSearch() {
+        const q = $("#search-input").value.trim();
+        if (!q) return;
+        const container = $("#search-results");
+        container.innerHTML = '<div class="no-results">Searching...</div>';
+
+        try {
+          const results = await api(`/search?q=${encodeURIComponent(q)}`);
+          if (!results.length) {
+            container.innerHTML =
+              '<div class="no-results">No results found</div>';
+            return;
+          }
+          container.innerHTML = "";
+          results.forEach((r, i) => {
+            const el = document.createElement("div");
+            el.className = `search-result fade-in`;
+            el.style.animationDelay = `${i * 40}ms`;
+            el.innerHTML = `
+        <div class="sr-title">${r.title}</div>
+        <div class="sr-score">score ${r.score}</div>
+        <div class="sr-snippet">${r.snippet || ""}</div>
+      `;
+            el.addEventListener("click", () => {
+              switchView("browse");
+              openArticle(r.path);
+            });
+            container.appendChild(el);
+          });
+        } catch (e) {
+          container.innerHTML = '<div class="no-results">Search failed</div>';
+        }
+      }
+
+      $("#btn-search").addEventListener("click", doSearch);
+      $("#search-input").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") doSearch();
+      });
+
+      // ---- Chat ----
+      const chatHistory = [];
+
+      async function sendChat() {
+        const input = $("#chat-input");
+        const q = input.value.trim();
+        if (!q) return;
+        input.value = "";
+
+        const messages = $("#chat-messages");
+
+        // User message
+        const userEl = document.createElement("div");
+        userEl.className = "chat-msg user fade-in";
+        userEl.textContent = q;
+        messages.appendChild(userEl);
+
+        // Loading
+        const loadEl = document.createElement("div");
+        loadEl.className = "chat-msg assistant loading fade-in";
+        loadEl.textContent = "Thinking...";
+        messages.appendChild(loadEl);
+        messages.scrollTop = messages.scrollHeight;
+
+        try {
+          const r = await api("/query", {
+            method: "POST",
+            body: JSON.stringify({ question: q }),
+          });
+          loadEl.classList.remove("loading");
+          loadEl.innerHTML = `<div class="article-body">${renderMarkdown(r.answer)}</div>`;
+
+          // Make wikilinks clickable in chat
+          $$(".wikilink", loadEl).forEach((el) => {
+            el.addEventListener("click", () => {
+              switchView("browse");
+              navigateToWikilink(el.dataset.link);
+            });
+          });
+        } catch (e) {
+          loadEl.classList.remove("loading");
+          loadEl.textContent = "Failed to get answer: " + e.message;
+          loadEl.style.color = "var(--danger)";
+        }
+
+        messages.scrollTop = messages.scrollHeight;
+      }
+
+      $("#btn-chat").addEventListener("click", sendChat);
+      $("#chat-input").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") sendChat();
+      });
+
+      // ---- Graph ----
+      async function loadGraph() {
+        graphInitialized = true;
+        const container = $("#graph-container");
+        const tooltip = $("#graph-tooltip");
+
+        try {
+          const data = await api("/graph");
+          if (!data.nodes.length) return;
+
+          const width = container.clientWidth;
+          const height = container.clientHeight;
+
+          const svg = d3
+            .select(container)
+            .insert("svg", ":first-child")
+            .attr("viewBox", [0, 0, width, height]);
+
+          const g = svg.append("g");
+
+          // Zoom
+          const zoom = d3
+            .zoom()
+            .scaleExtent([0.2, 5])
+            .on("zoom", (event) => g.attr("transform", event.transform));
+          svg.call(zoom);
+
+          const colorMap = { concept: "#7ea8be", source: "#be917e" };
+
+          const wordExtent = d3.extent(data.nodes, (d) => d.words);
+          const sizeScale = d3
+            .scaleSqrt()
+            .domain(
+              wordExtent[0] === wordExtent[1]
+                ? [0, wordExtent[1] || 1]
+                : wordExtent,
+            )
+            .range([5, 22]);
+
+          const simulation = d3
+            .forceSimulation(data.nodes)
+            .force(
+              "link",
+              d3
+                .forceLink(data.edges)
+                .id((d) => d.id)
+                .distance(80)
+                .strength(0.4),
+            )
+            .force("charge", d3.forceManyBody().strength(-200))
+            .force("center", d3.forceCenter(width / 2, height / 2))
+            .force(
+              "collision",
+              d3.forceCollide().radius((d) => sizeScale(d.words) + 4),
+            );
+
+          const link = g
+            .append("g")
+            .selectAll("line")
+            .data(data.edges)
+            .join("line")
+            .attr("stroke", "var(--border)")
+            .attr("stroke-width", 0.8)
+            .attr("stroke-opacity", 0.5);
+
+          const node = g
+            .append("g")
+            .selectAll("circle")
+            .data(data.nodes)
+            .join("circle")
+            .attr("r", (d) => sizeScale(d.words))
+            .attr("fill", (d) => colorMap[d.group] || "#888")
+            .attr("fill-opacity", 0.7)
+            .attr("stroke", (d) => colorMap[d.group] || "#888")
+            .attr("stroke-width", 1.5)
+            .attr("stroke-opacity", 0.3)
+            .style("cursor", "pointer")
+            .call(
+              d3
+                .drag()
+                .on("start", (event, d) => {
+                  if (!event.active) simulation.alphaTarget(0.3).restart();
+                  d.fx = d.x;
+                  d.fy = d.y;
+                })
+                .on("drag", (event, d) => {
+                  d.fx = event.x;
+                  d.fy = event.y;
+                })
+                .on("end", (event, d) => {
+                  if (!event.active) simulation.alphaTarget(0);
+                  d.fx = null;
+                  d.fy = null;
+                }),
+            );
+
+          // Labels for larger nodes
+          const label = g
+            .append("g")
+            .selectAll("text")
+            .data(data.nodes)
+            .join("text")
+            .text((d) => d.id)
+            .attr("font-family", "var(--font-mono)")
+            .attr("font-size", 10)
+            .attr("fill", "var(--text-muted)")
+            .attr("text-anchor", "middle")
+            .attr("dy", (d) => sizeScale(d.words) + 14)
+            .style("pointer-events", "none")
+            .style("opacity", (d) =>
+              d.words > (wordExtent[1] || 0) * 0.3 ? 1 : 0,
+            );
+
+          // Tooltip
+          node
+            .on("mouseover", (event, d) => {
+              tooltip.style.opacity = "1";
+              tooltip.querySelector(".tt-title").textContent = d.id;
+              tooltip.querySelector(".tt-meta").textContent =
+                `${d.group} \u00b7 ${d.words} words`;
+              node.attr("fill-opacity", (n) =>
+                n === d ||
+                data.edges.some(
+                  (e) =>
+                    (e.source === d && e.target === n) ||
+                    (e.target === d && e.source === n),
+                )
+                  ? 0.9
+                  : 0.2,
+              );
+              link.attr("stroke-opacity", (e) =>
+                e.source === d || e.target === d ? 0.8 : 0.1,
+              );
+            })
+            .on("mousemove", (event) => {
+              const rect = container.getBoundingClientRect();
+              tooltip.style.left = event.clientX - rect.left + 14 + "px";
+              tooltip.style.top = event.clientY - rect.top - 10 + "px";
+            })
+            .on("mouseout", () => {
+              tooltip.style.opacity = "0";
+              node.attr("fill-opacity", 0.7);
+              link.attr("stroke-opacity", 0.5);
+            })
+            .on("click", (event, d) => {
+              if (d.path) {
+                switchView("browse");
+                openArticle(d.path);
+              }
+            });
+
+          simulation.on("tick", () => {
+            link
+              .attr("x1", (d) => d.source.x)
+              .attr("y1", (d) => d.source.y)
+              .attr("x2", (d) => d.target.x)
+              .attr("y2", (d) => d.target.y);
+            node.attr("cx", (d) => d.x).attr("cy", (d) => d.y);
+            label.attr("x", (d) => d.x).attr("y", (d) => d.y);
+          });
+        } catch (e) {
+          console.error("Graph load failed:", e);
+        }
+      }
+
+      // ---- Init ----
+      loadDashboard();
+    </script>
+  </body>
+</html>
