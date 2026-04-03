@@ -25,11 +25,28 @@ cd llm-knowledge-base
 uv sync
 ```
 
-Set your Anthropic API key:
+### LLM provider
+
+**Ollama (default, free):** Install [Ollama](https://ollama.com), then pull a model:
 
 ```bash
+ollama pull qwen2.5:14b
+```
+
+**Anthropic (optional):** Set the provider and API key:
+
+```bash
+export KB_PROVIDER=anthropic
 export ANTHROPIC_API_KEY="your-key-here"
 ```
+
+**Configuration via environment variables:**
+
+| Variable          | Default                                                         | Description             |
+| ----------------- | --------------------------------------------------------------- | ----------------------- |
+| `KB_PROVIDER`     | `ollama`                                                        | `ollama` or `anthropic` |
+| `KB_MODEL`        | `qwen2.5:14b` (Ollama) / `claude-sonnet-4-20250514` (Anthropic) | Model name              |
+| `OLLAMA_BASE_URL` | `http://localhost:11434`                                        | Ollama server URL       |
 
 ## Usage
 
