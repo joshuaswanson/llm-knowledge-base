@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import csv
 import hashlib
+import io
 import json
+import os
 import re
 import shutil
+import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -15,7 +20,9 @@ import trafilatura
 import yaml
 import yt_dlp
 
-from kb.config import RAW_DIR, STATE_PATH
+from kb.config import IMAGES_DIR, RAW_DIR, STATE_PATH
+
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}
 
 
 def _load_state() -> dict:
@@ -46,6 +53,82 @@ def _write_raw_md(filename: str, content: str, metadata: dict) -> Path:
     dest = RAW_DIR / filename
     dest.write_text(full_content)
     return dest
+
+
+def _download_image(img_url: str, base_url: str = "") -> str | None:
+    """Download an image from *img_url* into IMAGES_DIR.
+
+    Returns the local filename on success, or ``None`` on failure.
+    """
+    # Resolve relative URLs
+    if img_url.startswith("//"):
+        img_url = "https:" + img_url
+    elif img_url.startswith("/") and base_url:
+        parsed = urlparse(base_url)
+        img_url = f"{parsed.scheme}://{parsed.netloc}{img_url}"
+    elif not img_url.startswith(("http://", "https://")):
+        return None
+
+    # Derive a filename from the URL path
+    parsed_img = urlparse(img_url)
+    url_path = parsed_img.path.rstrip("/")
+    basename = Path(url_path).name if url_path else ""
+    if not basename:
+        return None
+
+    # Only keep recognised image extensions
+    suffix = Path(basename).suffix.lower()
+    if suffix not in IMAGE_EXTENSIONS:
+        return None
+
+    IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Deduplicate: hash the URL to create a unique prefix
+    url_hash = hashlib.sha256(img_url.encode()).hexdigest()[:8]
+    local_name = f"{url_hash}-{basename}"
+    dest = IMAGES_DIR / local_name
+    if dest.exists():
+        return local_name
+
+    try:
+        resp = httpx.get(img_url, follow_redirects=True, timeout=30)
+        resp.raise_for_status()
+        dest.write_bytes(resp.content)
+        return local_name
+    except httpx.HTTPError:
+        return None
+
+
+def _download_images_and_rewrite(text: str, source_url: str) -> str:
+    """Find image references in *text*, download them, and rewrite paths."""
+
+    def _replace_md_image(m: re.Match) -> str:
+        alt = m.group(1)
+        img_url = m.group(2)
+        local = _download_image(img_url, base_url=source_url)
+        if local:
+            return f"![{alt}](images/{local})"
+        return m.group(0)
+
+    # Markdown image syntax: ![alt](url)
+    text = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", _replace_md_image, text)
+
+    # HTML <img> tags
+    def _replace_html_img(m: re.Match) -> str:
+        tag = m.group(0)
+        src_match = re.search(r'src=["\']([^"\']+)["\']', tag)
+        if not src_match:
+            return tag
+        img_url = src_match.group(1)
+        local = _download_image(img_url, base_url=source_url)
+        if local:
+            alt_match = re.search(r'alt=["\']([^"\']*)["\']', tag)
+            alt = alt_match.group(1) if alt_match else ""
+            return f"![{alt}](images/{local})"
+        return tag
+
+    text = re.sub(r"<img\s[^>]+>", _replace_html_img, text, flags=re.IGNORECASE)
+    return text
 
 
 def _is_youtube_url(url: str) -> bool:
@@ -366,9 +449,369 @@ def ingest_podcast(rss_url: str, max_episodes: int = 5) -> list[Path]:
     return paths
 
 
+def _is_repo_url(url: str) -> bool:
+    """Check whether a URL points to a GitHub or GitLab repository."""
+    host = urlparse(url).netloc.lower().replace("www.", "")
+    if host not in ("github.com", "gitlab.com"):
+        return False
+    # Repo URLs have at least /owner/repo in the path
+    parts = [p for p in urlparse(url).path.strip("/").split("/") if p]
+    if len(parts) < 2:
+        return False
+    # Exclude URLs that go deeper into specific resources like /issues, /pull, /blob
+    if len(parts) > 2 and parts[2] in (
+        "issues", "pull", "pulls", "blob", "tree", "commit", "commits",
+        "actions", "releases", "wiki", "settings", "compare",
+    ):
+        return False
+    return True
+
+
+def _build_file_tree(root: Path, max_depth: int = 3, prefix: str = "") -> str:
+    """Build an indented file tree string, limited to max_depth levels."""
+    if max_depth < 0:
+        return ""
+    try:
+        entries = sorted(root.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
+    except PermissionError:
+        return ""
+    lines: list[str] = []
+    skip = {".git", "__pycache__", "node_modules", ".tox", ".mypy_cache", ".pytest_cache", "venv", ".venv"}
+    filtered = [e for e in entries if e.name not in skip]
+    for i, entry in enumerate(filtered):
+        connector = "--- " if i == len(filtered) - 1 else "|-- "
+        lines.append(f"{prefix}{connector}{entry.name}")
+        if entry.is_dir() and max_depth > 0:
+            extension = "    " if i == len(filtered) - 1 else "|   "
+            subtree = _build_file_tree(entry, max_depth - 1, prefix + extension)
+            if subtree:
+                lines.append(subtree)
+    return "\n".join(lines)
+
+
+def _detect_language(root: Path) -> str:
+    """Guess the primary programming language from file extensions."""
+    ext_counts: Counter[str] = Counter()
+    lang_map = {
+        ".py": "Python", ".js": "JavaScript", ".ts": "TypeScript",
+        ".jsx": "JavaScript", ".tsx": "TypeScript", ".rs": "Rust",
+        ".go": "Go", ".java": "Java", ".c": "C", ".cpp": "C++",
+        ".h": "C", ".hpp": "C++", ".rb": "Ruby", ".swift": "Swift",
+        ".kt": "Kotlin", ".scala": "Scala", ".cs": "C#",
+        ".php": "PHP", ".lua": "Lua", ".zig": "Zig", ".jl": "Julia",
+        ".r": "R", ".R": "R",
+    }
+    for path in root.rglob("*"):
+        if path.is_file() and path.suffix in lang_map:
+            ext_counts[path.suffix] += 1
+    if not ext_counts:
+        return "Unknown"
+    top_ext = ext_counts.most_common(1)[0][0]
+    return lang_map.get(top_ext, "Unknown")
+
+
+def _fetch_github_stars(owner: str, repo: str) -> int | None:
+    """Try to fetch star count from the GitHub API. Returns None on failure."""
+    try:
+        resp = httpx.get(
+            f"https://api.github.com/repos/{owner}/{repo}",
+            headers={"Accept": "application/vnd.github.v3+json"},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            return resp.json().get("stargazers_count")
+    except httpx.HTTPError:
+        pass
+    return None
+
+
+def ingest_repo(repo_url: str) -> Path:
+    """Ingest a git repository into the knowledge base.
+
+    Clones the repo (shallow, depth=1), reads README and key metadata files,
+    builds a directory tree, and saves a markdown summary to raw/.
+    """
+    parsed = urlparse(repo_url)
+    path_parts = [p for p in parsed.path.strip("/").split("/") if p]
+    if len(path_parts) < 2:
+        raise ValueError(f"Cannot parse owner/repo from URL: {repo_url}")
+    owner, repo_name = path_parts[0], path_parts[1]
+    if repo_name.endswith(".git"):
+        repo_name = repo_name[:-4]
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        clone_dest = Path(tmp_dir) / repo_name
+        result = subprocess.run(
+            ["git", "clone", "--depth", "1", repo_url, str(clone_dest)],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"git clone failed: {result.stderr.strip()}")
+
+        body_parts: list[str] = []
+
+        # README
+        readme_path = None
+        for name in ("README.md", "readme.md", "Readme.md", "README.rst", "README.txt", "README"):
+            candidate = clone_dest / name
+            if candidate.exists():
+                readme_path = candidate
+                break
+        if readme_path:
+            readme_text = readme_path.read_text(errors="replace")
+            body_parts.append(f"## README\n\n{readme_text.strip()}")
+
+        # Directory tree
+        tree = _build_file_tree(clone_dest, max_depth=3)
+        if tree:
+            body_parts.append(f"## Directory Structure\n\n```\n{repo_name}/\n{tree}\n```")
+
+        # Key metadata files
+        metadata_files = [
+            "setup.py", "pyproject.toml", "package.json", "Cargo.toml",
+            "go.mod", "Makefile", "CMakeLists.txt",
+        ]
+        root_md_files = [
+            p.name for p in clone_dest.iterdir()
+            if p.is_file() and p.suffix == ".md" and p.name.lower() != "readme.md"
+        ]
+        files_to_read = metadata_files + sorted(root_md_files)
+
+        for fname in files_to_read:
+            fpath = clone_dest / fname
+            if fpath.exists() and fpath.is_file():
+                try:
+                    content = fpath.read_text(errors="replace")
+                    if len(content) > 5000:
+                        content = content[:5000] + "\n\n[... truncated]"
+                    body_parts.append(f"## {fname}\n\n```\n{content.strip()}\n```")
+                except Exception:
+                    pass
+
+        language = _detect_language(clone_dest)
+
+    if not body_parts:
+        body_parts.append("*No readable content found in the repository.*")
+
+    body = "\n\n".join(body_parts)
+    slug = _slugify(repo_name)
+    filename = f"{slug}.md"
+
+    metadata: dict = {
+        "title": repo_name,
+        "source_url": repo_url,
+        "source_type": "repo",
+        "language": language,
+        "ingested_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    host = parsed.netloc.lower().replace("www.", "")
+    if host == "github.com":
+        stars = _fetch_github_stars(owner, repo_name)
+        if stars is not None:
+            metadata["stars"] = stars
+
+    dest = _write_raw_md(filename, body, metadata)
+
+    state = _load_state()
+    state["sources"][filename] = {
+        "type": "repo",
+        "url": repo_url,
+        "title": repo_name,
+        "language": language,
+        "hash": _file_hash(dest),
+        "ingested_at": metadata["ingested_at"],
+        "compiled": False,
+    }
+    _save_state(state)
+
+    return dest
+
+
+def _guess_csv_dtype(values: list[str]) -> str:
+    """Guess the data type of a CSV column from sample values."""
+    if not values:
+        return "unknown"
+    int_count = 0
+    float_count = 0
+    bool_count = 0
+    for v in values:
+        v_stripped = v.strip()
+        if v_stripped.lower() in ("true", "false"):
+            bool_count += 1
+            continue
+        try:
+            int(v_stripped)
+            int_count += 1
+            continue
+        except ValueError:
+            pass
+        try:
+            float(v_stripped)
+            float_count += 1
+            continue
+        except ValueError:
+            pass
+    total = len(values)
+    if bool_count == total:
+        return "boolean"
+    if int_count == total:
+        return "integer"
+    if (int_count + float_count) == total:
+        return "numeric"
+    return "string"
+
+
+def ingest_dataset(path: Path) -> Path:
+    """Ingest a CSV or JSON dataset into the knowledge base.
+
+    Reads schema information and sample data, then saves a markdown summary
+    to raw/.
+    """
+    if not path.exists():
+        raise FileNotFoundError(f"File not found: {path}")
+
+    suffix = path.suffix.lower()
+    if suffix not in (".csv", ".json"):
+        raise ValueError(f"Unsupported dataset format: {suffix} (expected .csv or .json)")
+
+    title = path.stem.replace("-", " ").replace("_", " ").title()
+    body_parts: list[str] = []
+
+    if suffix == ".csv":
+        text = path.read_text(errors="replace")
+        reader = csv.reader(io.StringIO(text))
+        rows = list(reader)
+        if not rows:
+            raise ValueError(f"CSV file is empty: {path}")
+
+        header = rows[0]
+        data_rows = rows[1:]
+        num_rows = len(data_rows)
+        num_cols = len(header)
+
+        body_parts.append(f"## Schema\n\n- **Rows:** {num_rows:,}\n- **Columns:** {num_cols}")
+
+        col_info_lines = ["| Column | Sample Values | Inferred Type |", "| --- | --- | --- |"]
+        for col_idx, col_name in enumerate(header):
+            values = [r[col_idx] for r in data_rows[:20] if col_idx < len(r) and r[col_idx]]
+            dtype = _guess_csv_dtype(values)
+            sample = ", ".join(values[:3]) if values else "(empty)"
+            if len(sample) > 60:
+                sample = sample[:60] + "..."
+            col_info_lines.append(f"| {col_name} | {sample} | {dtype} |")
+        body_parts.append("## Columns\n\n" + "\n".join(col_info_lines))
+
+        sample_rows = data_rows[:5]
+        if sample_rows:
+            table_lines = ["| " + " | ".join(header) + " |"]
+            table_lines.append("| " + " | ".join("---" for _ in header) + " |")
+            for row in sample_rows:
+                padded = row + [""] * (len(header) - len(row))
+                cells = [c[:50] + "..." if len(c) > 50 else c for c in padded[:len(header)]]
+                table_lines.append("| " + " | ".join(cells) + " |")
+            body_parts.append("## Sample Data (first 5 rows)\n\n" + "\n".join(table_lines))
+
+        fm_metadata: dict = {
+            "title": title,
+            "source_type": "dataset",
+            "source_path": str(path),
+            "format": "csv",
+            "rows": num_rows,
+            "columns": num_cols,
+            "ingested_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    else:  # JSON
+        text = path.read_text(errors="replace")
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in {path}: {e}") from e
+
+        if isinstance(data, list):
+            num_records = len(data)
+            body_parts.append(f"## Structure\n\n- **Type:** Array of {num_records:,} records")
+
+            if num_records > 0 and isinstance(data[0], dict):
+                keys = list(data[0].keys())
+                body_parts.append(f"- **Fields:** {', '.join(keys)}")
+
+                sample = data[:3]
+                sample_text = json.dumps(sample, indent=2, default=str)
+                if len(sample_text) > 3000:
+                    sample_text = sample_text[:3000] + "\n... (truncated)"
+                body_parts.append(f"## Sample Records\n\n```json\n{sample_text}\n```")
+            elif num_records > 0:
+                sample = data[:5]
+                sample_text = json.dumps(sample, indent=2, default=str)
+                body_parts.append(f"## Sample Values\n\n```json\n{sample_text}\n```")
+
+            fm_metadata = {
+                "title": title,
+                "source_type": "dataset",
+                "source_path": str(path),
+                "format": "json",
+                "rows": num_records,
+                "ingested_at": datetime.now(timezone.utc).isoformat(),
+            }
+
+        elif isinstance(data, dict):
+            top_keys = list(data.keys())
+            body_parts.append(f"## Structure\n\n- **Type:** Object with {len(top_keys)} top-level keys")
+            body_parts.append(f"- **Keys:** {', '.join(top_keys)}")
+
+            for key in top_keys:
+                val = data[key]
+                if isinstance(val, list):
+                    body_parts.append(f"- **`{key}`:** Array of {len(val):,} items")
+
+            sample_text = json.dumps(data, indent=2, default=str)
+            if len(sample_text) > 3000:
+                sample_text = sample_text[:3000] + "\n... (truncated)"
+            body_parts.append(f"## Content Preview\n\n```json\n{sample_text}\n```")
+
+            fm_metadata = {
+                "title": title,
+                "source_type": "dataset",
+                "source_path": str(path),
+                "format": "json",
+                "columns": len(top_keys),
+                "ingested_at": datetime.now(timezone.utc).isoformat(),
+            }
+
+        else:
+            raise ValueError(f"Unexpected JSON root type: {type(data).__name__}")
+
+    body = "\n\n".join(body_parts)
+    slug = _slugify(path.stem)
+    filename = f"{slug}.md"
+
+    dest = _write_raw_md(filename, body, fm_metadata)
+
+    state = _load_state()
+    state["sources"][filename] = {
+        "type": "dataset",
+        "original_path": str(path),
+        "title": title,
+        "format": suffix.lstrip("."),
+        "hash": _file_hash(dest),
+        "ingested_at": fm_metadata["ingested_at"],
+        "compiled": False,
+    }
+    _save_state(state)
+
+    return dest
+
+
 def ingest_url(url: str) -> Path | list[Path]:
     if _is_youtube_url(url):
         return ingest_youtube(url)
+
+    if _is_repo_url(url):
+        return ingest_repo(url)
 
     # Check if the URL points to an RSS/Atom feed
     try:
@@ -415,6 +858,9 @@ def ingest_url(url: str) -> Path | list[Path]:
         "ingested_at": datetime.now(timezone.utc).isoformat(),
     }
 
+    # Download images referenced in the article and rewrite paths
+    text = _download_images_and_rewrite(text, url)
+
     dest = _write_raw_md(filename, text, metadata)
 
     state = _load_state()
@@ -435,9 +881,41 @@ def ingest_file(path: Path) -> Path:
     if not path.exists():
         raise FileNotFoundError(f"File not found: {path}")
 
+    # Route dataset files to ingest_dataset
+    if path.suffix.lower() in (".csv", ".json"):
+        return ingest_dataset(path)
+
     RAW_DIR.mkdir(parents=True, exist_ok=True)
 
     title = path.stem.replace("-", " ").replace("_", " ").title()
+
+    # Handle image files
+    if path.suffix.lower() in IMAGE_EXTENSIONS:
+        IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+        img_dest = IMAGES_DIR / path.name
+        shutil.copy2(path, img_dest)
+
+        metadata = {
+            "title": title,
+            "source_type": "image",
+            "source_path": str(path),
+            "ingested_at": datetime.now(timezone.utc).isoformat(),
+        }
+        body = f"![](images/{path.name})"
+        dest = _write_raw_md(f"{_slugify(path.stem)}.md", body, metadata)
+
+        state = _load_state()
+        filename = dest.name
+        state["sources"][filename] = {
+            "type": "image",
+            "original_path": str(path),
+            "title": title,
+            "hash": _file_hash(img_dest),
+            "ingested_at": metadata["ingested_at"],
+            "compiled": False,
+        }
+        _save_state(state)
+        return dest
 
     if path.suffix == ".md":
         dest = RAW_DIR / path.name

@@ -14,11 +14,12 @@ def cli():
 
 @cli.command()
 @click.argument("sources", nargs=-1, required=True)
-def ingest(sources: tuple[str, ...]):
+@click.option("--compile", "auto_compile", is_flag=True, help="Auto-compile after ingesting.")
+def ingest(sources: tuple[str, ...], auto_compile: bool):
     """Ingest files or URLs into the knowledge base.
 
     Accepts multiple sources at once. URLs are auto-detected.
-    YouTube URLs are handled specially (transcript extraction).
+    YouTube URLs, RSS feeds, and GitHub repos are handled specially.
     """
     from kb.ingest import ingest_file, ingest_url
 
@@ -35,6 +36,16 @@ def ingest(sources: tuple[str, ...]):
                 click.echo(f"  Saved to {p.relative_to(p.parent.parent)}")
         else:
             click.echo(f"  Saved to {dest.relative_to(dest.parent.parent)}")
+
+    if auto_compile:
+        from kb.compile import compile_kb
+
+        click.echo("\nCompiling...")
+        result = compile_kb()
+        click.echo(
+            f"Done: {result['sources_compiled']} sources compiled, "
+            f"{result['concepts_created']} concepts created."
+        )
 
 
 @cli.command("ingest-podcast")
@@ -201,15 +212,29 @@ def status():
 @cli.command()
 @click.option("--server", default="http://localhost:3000", help="Server URL for the bookmarklet.")
 def bookmarklet(server: str):
-    """Print the bookmarklet JavaScript for browser integration.
-
-    The bookmarklet sends the current page URL to the knowledge base
-    ingest endpoint. Drag it to your bookmarks bar or create a new
-    bookmark and paste the JavaScript as the URL.
-    """
-    from kb.web import _bookmarklet_js
-
-    js = _bookmarklet_js(server)
+    """Print the bookmarklet JavaScript for browser integration."""
+    server = server.rstrip("/")
+    js = (
+        "javascript:void((function(){"
+        "var s='" + server + "';"
+        "var u=location.href;"
+        "var n=document.createElement('div');"
+        "n.style.cssText='position:fixed;top:16px;right:16px;z-index:2147483647;"
+        "padding:12px 20px;border-radius:8px;font:14px/1.4 -apple-system,sans-serif;"
+        "color:#fff;background:#2563eb;box-shadow:0 4px 12px rgba(0,0,0,.15);"
+        "transition:opacity .3s';"
+        "n.textContent='Saving to KB...';"
+        "document.body.appendChild(n);"
+        "fetch(s+'/api/ingest',{method:'POST',"
+        "headers:{'Content-Type':'application/json'},"
+        "body:JSON.stringify({url:u})})"
+        ".then(function(r){if(!r.ok)throw new Error(r.status);return r.json()})"
+        ".then(function(){n.style.background='#16a34a';n.textContent='Saved to KB';"
+        "setTimeout(function(){n.style.opacity='0';setTimeout(function(){n.remove()},400)},2000)})"
+        ".catch(function(e){n.style.background='#dc2626';n.textContent='Failed: '+e.message;"
+        "setTimeout(function(){n.style.opacity='0';setTimeout(function(){n.remove()},400)},3000)})"
+        "})())"
+    )
     click.echo("Bookmarklet JavaScript")
     click.echo("=" * 60)
     click.echo()
@@ -219,22 +244,9 @@ def bookmarklet(server: str):
     click.echo()
     click.echo("How to install:")
     click.echo("  1. Create a new bookmark in your browser.")
-    click.echo("  2. Set the name to something like 'Save to KB'.")
+    click.echo("  2. Set the name to 'Save to KB'.")
     click.echo("  3. Paste the JavaScript above as the URL.")
-    click.echo("  4. Navigate to any page and click the bookmark to ingest it.")
-    click.echo()
-    click.echo(f"Or visit {server}/api/bookmarklet to drag it directly to your bookmarks bar.")
-
-
-@cli.command()
-@click.option("--host", default="127.0.0.1", help="Host to bind to.")
-@click.option("--port", default=3000, help="Port to bind to.")
-def serve(host: str, port: int):
-    """Launch the web UI."""
-    import uvicorn
-
-    click.echo(f"Starting web UI at http://{host}:{port}")
-    uvicorn.run("kb.web:app", host=host, port=port, reload=True)
+    click.echo("  4. Click the bookmark on any page to ingest it.")
 
 
 @cli.command()

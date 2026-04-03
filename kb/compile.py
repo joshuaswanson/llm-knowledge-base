@@ -7,7 +7,7 @@ from pathlib import Path
 import click
 import yaml
 
-from kb.config import CONCEPTS_DIR, RAW_DIR, SOURCES_DIR, STATE_PATH
+from kb.config import CONCEPTS_DIR, IMAGES_DIR, RAW_DIR, SOURCES_DIR, STATE_PATH
 from kb.index import rebuild_index
 from kb.llm import ask
 
@@ -57,10 +57,26 @@ def _get_existing_concepts() -> list[str]:
     return [p.stem for p in CONCEPTS_DIR.glob("*.md")]
 
 
+def _collect_image_refs(body: str) -> list[str]:
+    """Extract local image paths referenced in the body text."""
+    refs = re.findall(r"!\[[^\]]*\]\((images/[^)]+)\)", body)
+    # Only keep paths that actually exist on disk
+    return [r for r in refs if (RAW_DIR / r).exists()]
+
+
 def _compile_source_summary(meta: dict, body: str) -> str:
     title = meta.get("title", "Untitled")
     existing = _get_existing_concepts()
     existing_str = ", ".join(existing[:100]) if existing else "(none yet)"
+
+    image_refs = _collect_image_refs(body)
+    image_note = ""
+    if image_refs:
+        paths_str = "\n".join(f"  - {ref}" for ref in image_refs)
+        image_note = (
+            f"\nThis source references the following images (you cannot see them, "
+            f"but note their presence and preserve the references):\n{paths_str}\n"
+        )
 
     prompt = f"""\
 Summarize the following source document into a wiki article.
@@ -68,7 +84,7 @@ Summarize the following source document into a wiki article.
 Source title: {title}
 Source type: {meta.get('source_type', 'unknown')}
 Source URL: {meta.get('source_url', 'N/A')}
-
+{image_note}
 Existing concepts in the wiki (link to these with [[Name]] where relevant):
 {existing_str}
 
@@ -83,6 +99,7 @@ Write a comprehensive summary article for this source. Include:
 3. Key points and takeaways organized by topic
 4. Any specific data, quotes, or findings worth preserving
 5. Links to existing and new concepts using [[Concept Name]] syntax
+6. Preserve any image references from the source (![alt](images/...)) in relevant sections
 
 Output ONLY the markdown article content (starting with ---frontmatter---)."""
 

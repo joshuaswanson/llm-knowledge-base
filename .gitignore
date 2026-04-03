@@ -5,3 +5,10 @@ __pycache__/
 .obsidian/workspace.json
 .obsidian/workspace-mobile.json
 .claude/
+
+# Personal data - not part of the tool
+raw/
+wiki/
+!raw/.gitkeep
+!wiki/concepts/.gitkeep
+!wiki/sources/.gitkeep

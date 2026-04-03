@@ -105,6 +105,8 @@ Provide:
 2. Connections: Non-obvious connections between articles that could be explored
 3. Questions: Interesting research questions that arise from the content
 4. Suggestions: How to improve the overall structure and coverage
+5. Missing data: For each gap you identify, suggest a specific web search query that \
+could help find good source material to fill it (prefix with "SEARCH:")
 
 Be specific and actionable. Output as a markdown list."""
 

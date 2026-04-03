@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 RAW_DIR = ROOT / "raw"
+IMAGES_DIR = RAW_DIR / "images"
 WIKI_DIR = ROOT / "wiki"
 CONCEPTS_DIR = WIKI_DIR / "concepts"
 SOURCES_DIR = WIKI_DIR / "sources"
