@@ -526,6 +526,31 @@
         border-bottom-color: var(--accent-dim);
       }
 
+      .fn-ref a {
+        color: var(--accent);
+        text-decoration: none;
+        font-size: 0.75em;
+        font-weight: 600;
+      }
+      .fn-ref a:hover {
+        text-decoration: underline;
+      }
+
+      .fn-def {
+        font-size: 0.85em;
+        color: var(--text-muted);
+        padding: 4px 0 4px 24px;
+        position: relative;
+        line-height: 1.5;
+      }
+      .fn-def .fn-num {
+        position: absolute;
+        left: 0;
+        font-weight: 600;
+        color: var(--accent-dim);
+        font-size: 0.85em;
+      }
+
       .article-body code {
         font-family: var(--font-mono);
         font-size: 12px;
@@ -1029,11 +1054,24 @@
       }
 
       function renderMarkdown(md) {
-        // Convert [[wikilinks]] to clickable spans before marked processes it
-        const withLinks = md.replace(/\[\[([^\]]+)\]\]/g, (_, name) => {
+        // Convert [[wikilinks]] to clickable spans
+        let processed = md.replace(/\[\[([^\]]+)\]\]/g, (_, name) => {
           return `<span class="wikilink" data-link="${name}">${name}</span>`;
         });
-        return marked.parse(withLinks);
+
+        // Convert footnote references [^N] to superscript links
+        processed = processed.replace(
+          /\[\^(\d+)\](?!:)/g,
+          '<sup class="fn-ref"><a href="#fn-$1">[$1]</a></sup>',
+        );
+
+        // Convert footnote definitions [^N]: ... to a styled list
+        processed = processed.replace(
+          /^\[\^(\d+)\]:\s*(.+)$/gm,
+          '<div class="fn-def" id="fn-$1"><span class="fn-num">$1.</span> $2</div>',
+        );
+
+        return marked.parse(processed);
       }
 
       function formatNumber(n) {
