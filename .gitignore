@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+.kb_state.json
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.claude/
