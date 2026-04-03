@@ -34,6 +34,7 @@
         --accent: #c9a86c;
         --accent-dim: #a08550;
         --accent-glow: rgba(201, 168, 108, 0.12);
+        --accent-glow-strong: rgba(201, 168, 108, 0.2);
         --concept: #7ea8be;
         --source: #be917e;
         --success: #7ebe8a;
@@ -42,6 +43,13 @@
         --font-mono: "JetBrains Mono", "Menlo", monospace;
         --radius: 4px;
         --transition: 180ms ease;
+      }
+
+      html {
+        color-scheme: dark;
+      }
+      [data-theme="light"] {
+        color-scheme: light;
       }
 
       html,
@@ -317,7 +325,7 @@
       }
 
       .btn-accent:hover {
-        background: rgba(201, 168, 108, 0.2);
+        background: var(--accent-glow-strong);
         color: var(--accent);
       }
 
@@ -688,7 +696,7 @@
       .chat-msg.user {
         align-self: flex-end;
         background: var(--accent-glow);
-        border: 1px solid rgba(201, 168, 108, 0.2);
+        border: 1px solid var(--accent-glow-strong);
         color: var(--text);
       }
 
@@ -848,6 +856,72 @@
         }
       }
 
+      /* ---- Light Theme ---- */
+      [data-theme="light"] {
+        --bg-deep: #e8e0d4;
+        --bg: #f2ebe0;
+        --bg-surface: #faf6ef;
+        --bg-elevated: #ffffff;
+        --bg-hover: #ede6d9;
+        --border: #d4cabc;
+        --border-subtle: #e2dace;
+        --text: #2c2418;
+        --text-secondary: #5c5347;
+        --text-muted: #9a8e7f;
+        --accent: #8b6914;
+        --accent-dim: #a6842e;
+        --accent-glow: rgba(139, 105, 20, 0.08);
+        --accent-glow-strong: rgba(139, 105, 20, 0.15);
+        --concept: #3a7a96;
+        --source: #a0623e;
+        --success: #3a7a4a;
+        --danger: #a64040;
+      }
+
+      /* Theme toggle button */
+      .theme-toggle {
+        width: 40px;
+        height: 40px;
+        border: none;
+        background: transparent;
+        color: var(--text-muted);
+        cursor: pointer;
+        border-radius: var(--radius);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all var(--transition);
+        margin-top: auto;
+      }
+
+      .theme-toggle:hover {
+        color: var(--text-secondary);
+        background: var(--bg-hover);
+      }
+
+      .theme-toggle svg {
+        width: 18px;
+        height: 18px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 1.5;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .theme-toggle .icon-sun {
+        display: none;
+      }
+      .theme-toggle .icon-moon {
+        display: block;
+      }
+      [data-theme="light"] .theme-toggle .icon-sun {
+        display: block;
+      }
+      [data-theme="light"] .theme-toggle .icon-moon {
+        display: none;
+      }
+
       /* ---- Fade-in ---- */
       @keyframes fade-in {
         from {
@@ -914,6 +988,17 @@
           <circle cx="5" cy="19" r="2.5" />
           <circle cx="19" cy="19" r="2.5" />
           <path d="M12 7.5V12m-5.2 3.5L12 12m5.2 3.5L12 12" />
+        </svg>
+      </button>
+      <button class="theme-toggle" id="theme-toggle" title="Toggle theme">
+        <svg class="icon-sun" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="5" />
+          <path
+            d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"
+          />
+        </svg>
+        <svg class="icon-moon" viewBox="0 0 24 24">
+          <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
         </svg>
       </button>
     </nav>
@@ -1397,7 +1482,11 @@
             .on("zoom", (event) => g.attr("transform", event.transform));
           svg.call(zoom);
 
-          const colorMap = { concept: "#7ea8be", source: "#be917e" };
+          const styles = getComputedStyle(document.documentElement);
+          const colorMap = {
+            concept: styles.getPropertyValue("--concept").trim(),
+            source: styles.getPropertyValue("--source").trim(),
+          };
 
           const wordExtent = d3.extent(data.nodes, (d) => d.words);
           const sizeScale = d3
@@ -1534,6 +1623,32 @@
           console.error("Graph load failed:", e);
         }
       }
+
+      // ---- Theme Toggle ----
+      function setTheme(theme) {
+        if (theme === "light") {
+          document.documentElement.setAttribute("data-theme", "light");
+        } else {
+          document.documentElement.removeAttribute("data-theme");
+        }
+        localStorage.setItem("kb-theme", theme);
+      }
+
+      $("#theme-toggle").addEventListener("click", () => {
+        const current = localStorage.getItem("kb-theme") || "dark";
+        setTheme(current === "dark" ? "light" : "dark");
+        // Reset graph so it picks up new theme colors
+        if (graphInitialized) {
+          const svg = $("svg", $("#graph-container"));
+          if (svg) svg.remove();
+          graphInitialized = false;
+          if (currentView === "graph") loadGraph();
+        }
+      });
+
+      // Apply saved theme (default dark)
+      const savedTheme = localStorage.getItem("kb-theme") || "dark";
+      if (savedTheme === "light") setTheme("light");
 
       // ---- Init ----
       loadDashboard();
