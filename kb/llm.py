@@ -1,3 +1,5 @@
+import re
+
 import httpx
 
 from kb.config import (
@@ -36,7 +38,12 @@ def _ask_anthropic(prompt: str, system: str, model: str) -> str:
     return response.content[0].text
 
 
+def _strip_think_tags(text: str) -> str:
+    return re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL)
+
+
 def ask(prompt: str, *, system: str = "") -> str:
     if PROVIDER == "anthropic":
         return _ask_anthropic(prompt, system, ANTHROPIC_MODEL)
-    return _ask_ollama(prompt, system, OLLAMA_MODEL)
+    result = _ask_ollama(prompt, system, OLLAMA_MODEL)
+    return _strip_think_tags(result)

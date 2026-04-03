@@ -14,7 +14,7 @@ PROVIDER = os.environ.get("KB_PROVIDER", "ollama")
 
 # Ollama settings
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.environ.get("KB_MODEL", "qwen2.5:14b")
+OLLAMA_MODEL = os.environ.get("KB_MODEL", "qwen3:8b")
 
 # Anthropic settings
 ANTHROPIC_MODEL = os.environ.get("KB_MODEL", "claude-sonnet-4-20250514")

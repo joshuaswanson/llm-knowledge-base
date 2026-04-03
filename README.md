@@ -30,7 +30,7 @@ uv sync
 **Ollama (default, free):** Install [Ollama](https://ollama.com), then pull a model:
 
 ```bash
-ollama pull qwen2.5:14b
+ollama pull qwen3:8b
 ```
 
 **Anthropic (optional):** Set the provider and API key:
@@ -42,11 +42,11 @@ export ANTHROPIC_API_KEY="your-key-here"
 
 **Configuration via environment variables:**
 
-| Variable          | Default                                                         | Description             |
-| ----------------- | --------------------------------------------------------------- | ----------------------- |
-| `KB_PROVIDER`     | `ollama`                                                        | `ollama` or `anthropic` |
-| `KB_MODEL`        | `qwen2.5:14b` (Ollama) / `claude-sonnet-4-20250514` (Anthropic) | Model name              |
-| `OLLAMA_BASE_URL` | `http://localhost:11434`                                        | Ollama server URL       |
+| Variable          | Default                                                      | Description             |
+| ----------------- | ------------------------------------------------------------ | ----------------------- |
+| `KB_PROVIDER`     | `ollama`                                                     | `ollama` or `anthropic` |
+| `KB_MODEL`        | `qwen3:8b` (Ollama) / `claude-sonnet-4-20250514` (Anthropic) | Model name              |
+| `OLLAMA_BASE_URL` | `http://localhost:11434`                                     | Ollama server URL       |
 
 ## Usage
 
