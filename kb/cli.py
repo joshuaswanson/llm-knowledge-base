@@ -48,6 +48,22 @@ def ingest(sources: tuple[str, ...], auto_compile: bool):
         )
 
 
+@cli.command("ingest-repo")
+@click.argument("url")
+def ingest_repo_cmd(url: str):
+    """Ingest a GitHub or GitLab repository.
+
+    Clones the repo (shallow), reads the README, directory structure,
+    and key metadata files, then saves a markdown summary to the
+    knowledge base.
+    """
+    from kb.ingest import ingest_repo as _ingest_repo
+
+    click.echo(f"Cloning {url}...")
+    dest = _ingest_repo(url)
+    click.echo(f"  Saved to {dest.relative_to(dest.parent.parent)}")
+
+
 @cli.command("ingest-podcast")
 @click.argument("rss_url")
 @click.option("--max-episodes", default=5, show_default=True, help="Maximum number of episodes to ingest.")
