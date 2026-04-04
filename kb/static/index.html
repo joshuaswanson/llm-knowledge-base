@@ -1646,9 +1646,13 @@
         }
       });
 
-      // Apply saved theme (default dark)
-      const savedTheme = localStorage.getItem("kb-theme") || "dark";
-      if (savedTheme === "light") setTheme("light");
+      // Apply saved theme, or match system preference
+      const savedTheme = localStorage.getItem("kb-theme");
+      if (savedTheme) {
+        setTheme(savedTheme);
+      } else if (window.matchMedia("(prefers-color-scheme: light)").matches) {
+        setTheme("light");
+      }
 
       // ---- Init ----
       loadDashboard();

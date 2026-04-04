@@ -1,5 +1,5 @@
 ---
-ingested_at: '2026-04-04T13:14:14.271968+00:00'
+ingested_at: '2026-04-04T13:19:24.867830+00:00'
 source_type: url
 source_url: https://arxiv.org/abs/2510.21842
 title: 'Modal Aphasia: Can Unified Multimodal Models Describe Images From Memory?'

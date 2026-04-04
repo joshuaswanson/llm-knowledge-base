@@ -17,7 +17,7 @@ _DEFAULTS = {
 
 # Provider model defaults
 _MODEL_DEFAULTS = {
-    "ollama": "qwen3.5:27b",
+    "ollama": "kimi-k2.5:cloud",
     "anthropic": "claude-sonnet-4-20250514",
     "openai": "gpt-4o",
 }
