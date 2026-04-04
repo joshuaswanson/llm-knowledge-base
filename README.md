@@ -63,18 +63,26 @@ export ANTHROPIC_API_KEY=your-key
 | `OPENAI_API_KEY`    |                             | API key for OpenAI-compatible providers                               |
 | `ANTHROPIC_API_KEY` |                             | Anthropic API key                                                     |
 
+## Quick start
+
+```bash
+uv run kb init              # interactive setup (pick provider, model)
+uv run kb ingest <url>      # add a source
+uv run kb compile           # compile into wiki
+uv run kb serve             # open web UI
+```
+
 ## Usage
 
 ### CLI
 
 ```bash
-# Ingest sources (URLs, YouTube videos, local files, images)
-uv run kb ingest "https://example.com/article"
+# Ingest sources (URLs, YouTube, papers, files, images, datasets)
+uv run kb ingest "https://arxiv.org/abs/2510.21842"
 uv run kb ingest "https://youtube.com/watch?v=..."
-uv run kb ingest path/to/paper.md
-uv run kb ingest photo.png data.csv dataset.json
+uv run kb ingest paper.pdf notes.md photo.png data.csv
 
-# Batch ingest multiple sources at once (auto-compile after)
+# Batch ingest with auto-compile
 uv run kb ingest url1 url2 file1.md --compile
 
 # Ingest a GitHub/GitLab repo (clones, reads README + structure)
@@ -180,7 +188,17 @@ When you run `kb compile`:
 6. `INDEX.md` is rebuilt with brief summaries and word counts
 7. Images referenced in sources are downloaded locally to `raw/images/`
 
-Every compile run is incremental. Use `--force` to reprocess everything.
+Every compile run is incremental. Use `--force` to reprocess everything. Progress bars show status, and compilation survives errors (skips failed items and continues).
+
+## Configuration
+
+Settings are stored in `kb.toml` (created by `kb init`). Environment variables override the config file.
+
+```toml
+provider = "ollama"
+model = "qwen3.5:27b"
+max_concepts_per_compile = 20
+```
 
 ## Support
 
