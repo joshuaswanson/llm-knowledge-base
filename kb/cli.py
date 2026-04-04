@@ -13,6 +13,54 @@ def cli():
 
 
 @cli.command()
+def init():
+    """Initialize a new knowledge base interactively."""
+    from kb.config import CONFIG_PATH, ROOT, write_config
+
+    if CONFIG_PATH.exists():
+        if not click.confirm("kb.toml already exists. Overwrite?"):
+            return
+
+    click.echo("Setting up your knowledge base.\n")
+
+    provider = click.prompt(
+        "LLM provider",
+        type=click.Choice(["ollama", "anthropic", "openai"]),
+        default="ollama",
+    )
+
+    model = ""
+    if provider == "ollama":
+        model = click.prompt("Ollama model", default="qwen3.5:27b")
+    elif provider == "anthropic":
+        model = click.prompt("Model", default="claude-sonnet-4-20250514")
+    elif provider == "openai":
+        model = click.prompt("Model", default="gpt-4o")
+
+    openai_base = ""
+    if provider == "openai":
+        openai_base = click.prompt("API base URL", default="https://api.openai.com/v1")
+
+    max_concepts = click.prompt("Max concepts per compile run", default=20, type=int)
+
+    settings = {"provider": provider, "model": model, "max_concepts_per_compile": max_concepts}
+    if openai_base:
+        settings["openai_base_url"] = openai_base
+
+    write_config(settings)
+    click.echo(f"\nWrote {CONFIG_PATH.relative_to(ROOT)}")
+
+    # Create directories
+    for d in ["raw", "wiki/concepts", "wiki/sources"]:
+        (ROOT / d).mkdir(parents=True, exist_ok=True)
+
+    click.echo("\nReady. Next steps:")
+    click.echo("  kb ingest <url>     Ingest a source")
+    click.echo("  kb compile          Compile into wiki")
+    click.echo("  kb serve            Launch web UI")
+
+
+@cli.command()
 @click.argument("sources", nargs=-1, required=True)
 @click.option("--compile", "auto_compile", is_flag=True, help="Auto-compile after ingesting.")
 def ingest(sources: tuple[str, ...], auto_compile: bool):

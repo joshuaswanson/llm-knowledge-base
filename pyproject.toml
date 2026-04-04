@@ -1,8 +1,19 @@
 [project]
 name = "llm-knowledge-base"
 version = "0.1.0"
-description = "LLM-powered personal knowledge base"
+description = "LLM-powered personal knowledge base. Ingest sources, compile into a cross-linked wiki, query with natural language."
+readme = "README.md"
+license = "MIT"
 requires-python = ">=3.11"
+keywords = ["llm", "knowledge-base", "obsidian", "wiki", "rag"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Text Processing :: Indexing",
+]
 dependencies = [
     "click>=8.1",
     "anthropic>=0.40",
@@ -19,6 +30,10 @@ dependencies = [
 
 [project.scripts]
 kb = "kb.cli:cli"
+
+[project.urls]
+Homepage = "https://github.com/joshuaswanson/llm-knowledge-base"
+Repository = "https://github.com/joshuaswanson/llm-knowledge-base"
 
 [tool.hatch.build.targets.wheel]
 packages = ["kb"]

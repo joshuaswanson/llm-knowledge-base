@@ -7,7 +7,7 @@ from pathlib import Path
 import click
 import yaml
 
-from kb.config import CONCEPTS_DIR, IMAGES_DIR, RAW_DIR, SOURCES_DIR, STATE_PATH
+from kb.config import CONCEPTS_DIR, MAX_CONCEPTS_PER_COMPILE, RAW_DIR, SOURCES_DIR, STATE_PATH
 from kb.index import rebuild_index
 from kb.llm import ask
 
@@ -58,9 +58,7 @@ def _get_existing_concepts() -> list[str]:
 
 
 def _collect_image_refs(body: str) -> list[str]:
-    """Extract local image paths referenced in the body text."""
     refs = re.findall(r"!\[[^\]]*\]\((images/[^)]+)\)", body)
-    # Only keep paths that actually exist on disk
     return [r for r in refs if (RAW_DIR / r).exists()]
 
 
@@ -162,46 +160,56 @@ def compile_kb(force: bool = False) -> dict:
     SOURCES_DIR.mkdir(parents=True, exist_ok=True)
     CONCEPTS_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Compile sources with progress
     source_articles = []
-    for filename, raw_path, info in uncompiled:
-        meta, body = _read_raw_source(raw_path)
-        title = meta.get("title", info.get("title", "Untitled"))
+    compiled_count = 0
+    with click.progressbar(uncompiled, label="Compiling sources", item_show_func=lambda x: x[2].get("title", x[0]) if x else "") as bar:
+        for filename, raw_path, info in bar:
+            meta, body = _read_raw_source(raw_path)
+            try:
+                article = _compile_source_summary(meta, body)
+                source_articles.append(article)
 
-        click.echo(f"  Compiling source: {title}")
-        article = _compile_source_summary(meta, body)
-        source_articles.append(article)
+                slug = re.sub(r"[^\w\s-]", "", meta.get("title", info.get("title", "Untitled")).lower().strip())
+                slug = re.sub(r"[\s_]+", "-", slug)[:80].strip("-")
+                dest = SOURCES_DIR / f"{slug}.md"
+                dest.write_text(article)
 
-        slug = re.sub(r"[^\w\s-]", "", title.lower().strip())
-        slug = re.sub(r"[\s_]+", "-", slug)[:80].strip("-")
-        dest = SOURCES_DIR / f"{slug}.md"
-        dest.write_text(article)
+                state["sources"][filename]["compiled"] = True
+                compiled_count += 1
+                # Save state after each source so progress survives crashes
+                _save_state(state)
+            except Exception as e:
+                click.echo(f"\n  Error compiling {filename}: {e}")
+                continue
 
-        state["sources"][filename]["compiled"] = True
-
-    # Extract new concepts from all source articles
+    # Extract new concepts
     new_concepts = _extract_concepts(source_articles)
 
-    # Also gather existing source articles for context
     all_source_texts = []
     for p in SOURCES_DIR.glob("*.md"):
         all_source_texts.append(p.read_text())
 
     concepts_created = 0
-    if new_concepts:
-        click.echo(f"  Found {len(new_concepts)} new concepts to create")
-        for concept in new_concepts[:20]:  # Cap at 20 per compile run
-            click.echo(f"  Creating concept: {concept}")
-            article = _compile_concept_article(concept, all_source_texts)
-            slug = re.sub(r"[^\w\s-]", "", concept.lower().strip())
-            slug = re.sub(r"[\s_]+", "-", slug)[:80].strip("-")
-            dest = CONCEPTS_DIR / f"{slug}.md"
-            dest.write_text(article)
-            concepts_created += 1
+    capped = new_concepts[:MAX_CONCEPTS_PER_COMPILE]
+    if capped:
+        with click.progressbar(capped, label="Creating concepts ", item_show_func=lambda x: x if x else "") as bar:
+            for concept in bar:
+                try:
+                    article = _compile_concept_article(concept, all_source_texts)
+                    slug = re.sub(r"[^\w\s-]", "", concept.lower().strip())
+                    slug = re.sub(r"[\s_]+", "-", slug)[:80].strip("-")
+                    dest = CONCEPTS_DIR / f"{slug}.md"
+                    dest.write_text(article)
+                    concepts_created += 1
+                except Exception as e:
+                    click.echo(f"\n  Error creating concept '{concept}': {e}")
+                    continue
 
     _save_state(state)
     rebuild_index()
 
     return {
-        "sources_compiled": len(uncompiled),
+        "sources_compiled": compiled_count,
         "concepts_created": concepts_created,
     }
